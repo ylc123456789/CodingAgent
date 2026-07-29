@@ -1,4 +1,4 @@
-﻿# CodingAgent
+# CodingAgent
 
 CodingAgent is a lightweight repo-scoped coding agent for code-related tasks. It is designed to be developed as a standalone project and later copied into `reproagent` as a folder.
 
@@ -37,7 +37,7 @@ conda activate CodingAgent
 pip install -e ".[dev]"
 ```
 
-## DeepSeek Smoke Test
+## DeepSeek Smoke Tests
 
 Configure the API key in WSL without committing it:
 
@@ -45,14 +45,15 @@ Configure the API key in WSL without committing it:
 export DEEPSEEK_API_KEY="your-key"
 ```
 
-Run the real API smoke test:
+Run the real API smoke tests:
 
 ```bash
 conda activate CodingAgent
 python scripts/deepseek_smoke.py
+python scripts/deepseek_repair_smoke.py
 ```
 
-The smoke test uses the OpenAI-compatible DeepSeek endpoint:
+The smoke tests use the OpenAI-compatible DeepSeek endpoint:
 
 ```text
 api_base=https://api.deepseek.com
@@ -75,6 +76,7 @@ report = run_code_task(CodeTaskSpec(
     verify_commands=["python train.py --help"],
     allowed_paths=["train.py"],
     max_steps=12,
+    patch_repair_attempts=2,
     api_base="https://api.deepseek.com",
     api_key_env="DEEPSEEK_API_KEY",
     model="deepseek-v4-pro",
@@ -90,6 +92,9 @@ print(report.status)
 - `.git`, virtual environments, data directories, cache folders, and model weights are blocked by default.
 - Dangerous commands such as `sudo`, `rm -rf`, recursive ownership changes, shutdown/reboot, and `curl | bash` are blocked.
 - Changes are applied through unified diff by `apply_patch`, so every run can produce `diff.patch`.
+- Patches are validated with `git apply --check` before they are applied.
+- Malformed patches are saved as `logs/failed_patch_<step>_<attempt>.patch` with matching stderr artifacts.
+- The controller can ask the model for bounded patch repair attempts before giving up.
 - If `verify_commands` are provided, a model-requested `completed` finish is downgraded unless verification evidence exists and passes.
 
 ## Run Artifacts
@@ -105,6 +110,8 @@ coding_agent_run/
   logs/
     action_01.json
     action_02.json
+    failed_patch_02_01.patch
+    failed_patch_02_01.stderr
     step_03/
       verify_01.stdout
       verify_01.stderr
@@ -125,4 +132,4 @@ Not yet a full research-design agent by itself:
 - large multi-module feature work needs better decomposition
 - experiment design should still be decided by an upper-level research agent
 - reviewer logic is still mostly evidence/rule based
-- patch repair and AST-aware edits are future work
+- AST-aware edits are future work
