@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +16,7 @@ class CodeTaskSpec(BaseModel):
     verify_commands: list[str] = Field(default_factory=list)
     allowed_paths: list[str] = Field(default_factory=list)
     max_iterations: int = 3
+    max_steps: int = 12
     timeout_seconds: int = 900
     api_base: str = "https://api.openai.com/v1"
     api_key_env: str = "OPENAI_API_KEY"
@@ -37,6 +38,13 @@ class CodeTaskSpec(BaseModel):
     def max_iterations_positive(cls, value: int) -> int:
         if value < 1:
             raise ValueError("max_iterations must be >= 1")
+        return value
+
+    @field_validator("max_steps")
+    @classmethod
+    def max_steps_positive(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("max_steps must be >= 1")
         return value
 
 
@@ -82,6 +90,35 @@ class CommandResult(BaseModel):
         return self.returncode == 0 and not self.timed_out
 
 
+class ControllerAction(BaseModel):
+    action: Literal[
+        "list_tree",
+        "read_file",
+        "search",
+        "apply_patch",
+        "run_command",
+        "finish",
+        "ask_user",
+    ]
+    reasoning: str
+    path: str | None = None
+    query: str | None = None
+    command: str | None = None
+    patch: str | None = None
+    status: Literal["completed", "failed", "blocked", "needs_user_input"] | None = None
+    summary: str | None = None
+    residual_risks: list[str] = Field(default_factory=list)
+
+
+class StepRecord(BaseModel):
+    step: int
+    action: ControllerAction
+    observation: str
+    changed_files: list[str] = Field(default_factory=list)
+    verification_results: list[CommandResult] = Field(default_factory=list)
+    error: str | None = None
+
+
 class PatchAttempt(BaseModel):
     iteration: int
     plan: EditPlan | None = None
@@ -104,4 +141,5 @@ class AgentState(BaseModel):
     task: CodeTaskSpec
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     attempts: list[PatchAttempt] = Field(default_factory=list)
+    steps: list[StepRecord] = Field(default_factory=list)
     report: PatchReport | None = None
