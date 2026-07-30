@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from coding_agent.apply import PatchApplyError, apply_patch_text, current_diff
+from coding_agent.edits import StructuredEditError, insert_after_anchor, replace_text_once
 from coding_agent.runner import run_verify_commands
 
 
@@ -40,6 +41,45 @@ def test_apply_patch_text_checks_patch_before_applying(tmp_path: Path) -> None:
         apply_patch_text(repo, malformed_patch)
     assert (repo / "train.py").read_text(encoding="utf-8") == "print('accuracy')\n"
 
+
+def test_replace_text_once_succeeds_and_rejects_ambiguous_matches(tmp_path: Path) -> None:
+    repo = tmp_path
+    path = repo / "train.py"
+    path.write_text("print('accuracy')\n", encoding="utf-8")
+    _init_repo(repo)
+
+    changed = replace_text_once(repo, "train.py", "print('accuracy')", "print('loss')")
+    assert changed == "train.py"
+    assert path.read_text(encoding="utf-8") == "print('loss')\n"
+
+    path.write_text("x = 1\nx = 1\n", encoding="utf-8")
+    with pytest.raises(StructuredEditError, match="found 2"):
+        replace_text_once(repo, "train.py", "x = 1", "x = 2")
+    with pytest.raises(StructuredEditError, match="found 0"):
+        replace_text_once(repo, "train.py", "missing", "x = 2")
+
+
+def test_insert_after_anchor_succeeds_with_exact_anchor(tmp_path: Path) -> None:
+    repo = tmp_path
+    path = repo / "train.py"
+    path.write_text("accuracy = 0.5\nprint(accuracy)\n", encoding="utf-8")
+    _init_repo(repo)
+
+    changed = insert_after_anchor(repo, "train.py", "accuracy = 0.5\n", "loss = 1.0\n")
+    assert changed == "train.py"
+    assert path.read_text(encoding="utf-8") == "accuracy = 0.5\nloss = 1.0\nprint(accuracy)\n"
+
+
+
+
+def test_insert_after_anchor_treats_line_anchor_as_whole_line(tmp_path: Path) -> None:
+    repo = tmp_path
+    path = repo / "train.py"
+    path.write_text("print('accuracy 0.5')\n", encoding="utf-8")
+    _init_repo(repo)
+
+    insert_after_anchor(repo, "train.py", "print('accuracy 0.5')", "print('loss 1.0')\n")
+    assert path.read_text(encoding="utf-8") == "print('accuracy 0.5')\nprint('loss 1.0')\n"
 
 def test_run_verify_commands_writes_logs(tmp_path: Path) -> None:
     results = run_verify_commands(

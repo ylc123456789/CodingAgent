@@ -12,27 +12,15 @@ def test_run_code_task_with_mocked_controller(tmp_path: Path, monkeypatch) -> No
 
     class FakeClient:
         actions = [
+            {"action": "read_file", "reasoning": "Inspect the target script before editing.", "path": "train.py"},
             {
-                "action": "read_file",
-                "reasoning": "Inspect the target script before editing.",
+                "action": "insert_after",
+                "reasoning": "Add minimal loss output after accuracy with an exact anchor.",
                 "path": "train.py",
+                "anchor_text": "print('accuracy 0.5')\n",
+                "insert_text": "print('loss 1.0')\n",
             },
-            {
-                "action": "apply_patch",
-                "reasoning": "Add minimal loss output after accuracy.",
-                "patch": """diff --git a/train.py b/train.py
---- a/train.py
-+++ b/train.py
-@@ -1 +1,2 @@
- print('accuracy 0.5')
-+print('loss 1.0')
-""",
-            },
-            {
-                "action": "run_command",
-                "reasoning": "Verify the script prints both metrics.",
-                "command": "python train.py",
-            },
+            {"action": "run_command", "reasoning": "Verify the script prints both metrics.", "command": "python train.py"},
             {
                 "action": "finish",
                 "reasoning": "The diff is minimal and verification passed.",
@@ -53,12 +41,7 @@ def test_run_code_task_with_mocked_controller(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setattr("coding_agent.controller.LLMClient", FakeClient)
 
     report = run_code_task(
-        CodeTaskSpec(
-            repo_path=repo,
-            task_goal="Add training loss logging.",
-            verify_commands=["python train.py"],
-            max_steps=4,
-        )
+        CodeTaskSpec(repo_path=repo, task_goal="Add training loss logging.", verify_commands=["python train.py"], max_steps=4)
     )
 
     assert report.status == "completed"
@@ -68,7 +51,7 @@ def test_run_code_task_with_mocked_controller(tmp_path: Path, monkeypatch) -> No
     assert "loss 1.0" in (repo / "coding_agent_run" / "logs" / "step_03" / "verify_01.stdout").read_text(encoding="utf-8")
 
 
-def test_controller_repairs_malformed_patch(tmp_path: Path, monkeypatch) -> None:
+def test_controller_recovers_malformed_patch_with_structured_repair(tmp_path: Path, monkeypatch) -> None:
     repo = tmp_path / "toy_repo"
     repo.mkdir()
     (repo / "train.py").write_text("print('accuracy 0.5')\n", encoding="utf-8")
@@ -87,17 +70,8 @@ def test_controller_repairs_malformed_patch(tmp_path: Path, monkeypatch) -> None
 +print('loss 1.0')
 """,
             },
-            {
-                "action": "run_command",
-                "reasoning": "Verify repaired patch.",
-                "command": "python train.py",
-            },
-            {
-                "action": "finish",
-                "reasoning": "Verification passed.",
-                "status": "completed",
-                "summary": "Repaired and applied loss logging patch.",
-            },
+            {"action": "run_command", "reasoning": "Verify repaired edit.", "command": "python train.py"},
+            {"action": "finish", "reasoning": "Verification passed.", "status": "completed", "summary": "Repaired with structured edit."},
         ]
 
         def __init__(self, *args, **kwargs) -> None:
@@ -106,14 +80,11 @@ def test_controller_repairs_malformed_patch(tmp_path: Path, monkeypatch) -> None
         def complete_json(self, system, user):
             if "repair" in system.lower():
                 return {
-                    "patch": """diff --git a/train.py b/train.py
---- a/train.py
-+++ b/train.py
-@@ -1 +1,2 @@
- print('accuracy 0.5')
-+print('loss 1.0')
-""",
-                    "notes": ["Fixed unified diff hunk line count."],
+                    "action": "insert_after",
+                    "path": "train.py",
+                    "anchor_text": "print('accuracy 0.5')\n",
+                    "insert_text": "print('loss 1.0')\n",
+                    "notes": ["Converted malformed unified diff into exact insert_after edit."],
                 }
             action = self.actions[self.index]
             self.index += 1
@@ -136,8 +107,18 @@ def test_controller_repairs_malformed_patch(tmp_path: Path, monkeypatch) -> None
     assert report.changed_files == ["train.py"]
     assert (logs / "failed_patch_01_01.patch").exists()
     assert (logs / "failed_patch_01_01.stderr").exists()
+    assert (logs / "repair_context_01_01.json").exists()
+    assert (logs / "repair_response_01_01.json").exists()
     assert "loss 1.0" in (repo / "train.py").read_text(encoding="utf-8")
 
+
+
+
+def test_patch_repair_response_accepts_string_notes() -> None:
+    from coding_agent.controller import PatchRepairResponse
+
+    response = PatchRepairResponse.model_validate({"action": "insert_after", "notes": "fixed anchor"})
+    assert response.notes == ["fixed anchor"]
 
 def _init_repo(repo: Path) -> None:
     _run(repo, "git init")

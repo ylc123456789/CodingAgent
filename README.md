@@ -13,6 +13,8 @@ CodeTaskSpec
        -> list_tree
        -> read_file
        -> search
+       -> replace_text
+       -> insert_before / insert_after
        -> apply_patch
        -> run_command
        -> finish / ask_user
@@ -91,10 +93,12 @@ print(report.status)
 - `allowed_paths` can restrict edits to specific files or directories.
 - `.git`, virtual environments, data directories, cache folders, and model weights are blocked by default.
 - Dangerous commands such as `sudo`, `rm -rf`, recursive ownership changes, shutdown/reboot, and `curl | bash` are blocked.
-- Changes are applied through unified diff by `apply_patch`, so every run can produce `diff.patch`.
+- Small local edits should use deterministic structured actions: `replace_text`, `insert_before`, or `insert_after`.
+- Structured edits require exact one-time matches for old text or anchor text.
+- Unified diff remains available through `apply_patch`, and every run can still produce `diff.patch`.
 - Patches are validated with `git apply --check` before they are applied.
 - Malformed patches are saved as `logs/failed_patch_<step>_<attempt>.patch` with matching stderr artifacts.
-- The controller can ask the model for bounded patch repair attempts before giving up.
+- Patch repair can return either a corrected diff or a structured edit action.
 - If `verify_commands` are provided, a model-requested `completed` finish is downgraded unless verification evidence exists and passes.
 
 ## Run Artifacts
@@ -112,6 +116,8 @@ coding_agent_run/
     action_02.json
     failed_patch_02_01.patch
     failed_patch_02_01.stderr
+    repair_context_02_01.json
+    repair_response_02_01.json
     step_03/
       verify_01.stdout
       verify_01.stderr
@@ -132,4 +138,4 @@ Not yet a full research-design agent by itself:
 - large multi-module feature work needs better decomposition
 - experiment design should still be decided by an upper-level research agent
 - reviewer logic is still mostly evidence/rule based
-- AST-aware edits are future work
+- multi-operation structured edit batches and AST-aware edits are future work

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from coding_agent.apply import PatchApplyError, apply_patch_text, current_diff
 from coding_agent.controller import repair_patch
+from coding_agent.edits import insert_after_anchor, insert_before_anchor, replace_text_once
 from coding_agent.llm import LLMClient
 from coding_agent.models import CodeTaskSpec
 
@@ -28,6 +29,7 @@ def main() -> None:
  print('accuracy 0.5')
 +print('loss 1.0')
 """
+    output_dir = repo / "coding_agent_run"
     spec = CodeTaskSpec(
         repo_path=repo,
         task_goal="Add loss logging while preserving the existing accuracy output.",
@@ -36,22 +38,41 @@ def main() -> None:
         api_base="https://api.deepseek.com",
         api_key_env="DEEPSEEK_API_KEY",
         model="deepseek-v4-pro",
+        output_dir=output_dir,
     )
     client = LLMClient(api_base=spec.api_base, api_key_env=spec.api_key_env, model=spec.model)
 
     try:
         apply_patch_text(repo, malformed_patch, spec.allowed_paths)
     except PatchApplyError as exc:
-        repaired = repair_patch(spec, malformed_patch, exc.stderr or str(exc), client)
+        repaired = repair_patch(spec, malformed_patch, exc.stderr or str(exc), output_dir, 1, 1, client)
     else:
         raise RuntimeError("malformed patch unexpectedly applied")
 
-    changed = apply_patch_text(repo, repaired.patch, spec.allowed_paths)
+    changed = apply_repaired_edit(spec, repaired)
+    verified = subprocess.run(["python", "train.py"], cwd=repo, text=True, capture_output=True, check=False)
     print(f"repo={repo}")
     print(f"changed_files={changed}")
+    print(f"repair_action={repaired.action}")
     print("notes=" + "; ".join(repaired.notes))
+    print(f"verify_returncode={verified.returncode}")
+    print(verified.stdout.strip())
     print("diff:")
     print(current_diff(repo))
+    if verified.returncode != 0:
+        raise RuntimeError(verified.stderr)
+
+
+def apply_repaired_edit(spec: CodeTaskSpec, repaired) -> list[str]:
+    if repaired.action == "apply_patch":
+        return apply_patch_text(spec.repo_path, repaired.patch or "", spec.allowed_paths)
+    if repaired.action == "replace_text":
+        return [replace_text_once(spec.repo_path, repaired.path or "", repaired.old_text or "", repaired.new_text or "", spec.allowed_paths)]
+    if repaired.action == "insert_before":
+        return [insert_before_anchor(spec.repo_path, repaired.path or "", repaired.anchor_text or "", repaired.insert_text or "", spec.allowed_paths)]
+    if repaired.action == "insert_after":
+        return [insert_after_anchor(spec.repo_path, repaired.path or "", repaired.anchor_text or "", repaired.insert_text or "", spec.allowed_paths)]
+    raise RuntimeError(f"unsupported repair action: {repaired.action}")
 
 
 def run(cwd: Path, command: list[str]) -> None:
