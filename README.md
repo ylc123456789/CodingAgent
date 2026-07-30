@@ -99,7 +99,7 @@ print(report.status)
 - Patches are validated with `git apply --check` before they are applied.
 - Malformed patches are saved as `logs/failed_patch_<step>_<attempt>.patch` with matching stderr artifacts.
 - Patch repair can return either a corrected diff or a structured edit action.
-- If `verify_commands` are provided, a model-requested `completed` finish is downgraded unless verification evidence exists and passes.
+- `ControllerAction.reasoning` is optional so minor model schema omissions do not fail an otherwise valid run.`n- If `verify_commands` are provided, a model-requested `completed` finish is downgraded unless verification evidence exists and passes.`n- If files changed after the last verification, the controller auto-runs `verify_commands` before accepting `finish`.
 
 ## Run Artifacts
 
