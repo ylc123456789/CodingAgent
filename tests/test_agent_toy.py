@@ -116,6 +116,73 @@ def test_controller_recovers_malformed_patch_with_structured_repair(tmp_path: Pa
 
 
 
+def test_controller_repairs_ambiguous_structured_anchor(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "toy_repo"
+    repo.mkdir()
+    (repo / "train.py").write_text(
+        "batch_time_meter = RunningAverageMeter()\n"
+        "f_nfe_meter = RunningAverageMeter()\n"
+        "b_nfe_meter = RunningAverageMeter()\n"
+        "end = time.time()\n"
+        "for batch in train_loader:\n"
+        "    end = time.time()\n",
+        encoding="utf-8",
+    )
+    _init_repo(repo)
+
+    class FakeClient:
+        actions = [
+            {
+                "action": "insert_before",
+                "reasoning": "Add loss meter before timing starts, but the anchor is too short.",
+                "path": "train.py",
+                "anchor_text": "end = time.time()",
+                "insert_text": "loss_meter = RunningAverageMeter()\n",
+            },
+            {"action": "run_command", "reasoning": "Verify syntax.", "command": "python -m py_compile train.py"},
+            {"action": "finish", "status": "completed", "summary": "Added loss meter."},
+        ]
+
+        def __init__(self, *args, **kwargs) -> None:
+            self.index = 0
+
+        def complete_json(self, system, user):
+            if "repair failed deterministic structured edits" in system.lower():
+                return {
+                    "action": "insert_before",
+                    "reasoning": "Use a longer unique anchor around the meter setup.",
+                    "path": "train.py",
+                    "anchor_text": (
+                        "batch_time_meter = RunningAverageMeter()\n"
+                        "f_nfe_meter = RunningAverageMeter()\n"
+                        "b_nfe_meter = RunningAverageMeter()\n"
+                        "end = time.time()"
+                    ),
+                    "insert_text": "loss_meter = RunningAverageMeter()\n",
+                }
+            action = self.actions[self.index]
+            self.index += 1
+            return action
+
+    monkeypatch.setattr("coding_agent.controller.LLMClient", FakeClient)
+
+    report = run_code_task(
+        CodeTaskSpec(
+            repo_path=repo,
+            task_goal="Add training loss logging.",
+            verify_commands=["python -m py_compile train.py"],
+            max_steps=3,
+            patch_repair_attempts=2,
+        )
+    )
+
+    text = (repo / "train.py").read_text(encoding="utf-8")
+    assert report.status == "completed"
+    assert text.startswith("loss_meter = RunningAverageMeter()\nbatch_time_meter")
+    assert (repo / "coding_agent_run" / "logs" / "failed_structured_edit_01_01.json").exists()
+    assert (repo / "coding_agent_run" / "logs" / "structured_edit_context_01_01.json").exists()
+    assert (repo / "coding_agent_run" / "logs" / "structured_edit_response_01_01.json").exists()
+
 def test_finish_without_reasoning_auto_verifies_after_edit(tmp_path: Path, monkeypatch) -> None:
     repo = tmp_path / "toy_repo"
     repo.mkdir()

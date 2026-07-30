@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from coding_agent.apply import PatchApplyError, apply_patch_text, current_diff
-from coding_agent.edits import StructuredEditError, insert_after_anchor, replace_text_once
+from coding_agent.edits import StructuredEditError, insert_after_anchor, insert_before_anchor, replace_text_once
 from coding_agent.runner import run_verify_commands
 
 
@@ -80,6 +80,18 @@ def test_insert_after_anchor_treats_line_anchor_as_whole_line(tmp_path: Path) ->
 
     insert_after_anchor(repo, "train.py", "print('accuracy 0.5')", "print('loss 1.0')\n")
     assert path.read_text(encoding="utf-8") == "print('accuracy 0.5')\nprint('loss 1.0')\n"
+
+def test_insert_before_anchor_supports_explicit_occurrence_index(tmp_path: Path) -> None:
+    repo = tmp_path
+    path = repo / "train.py"
+    path.write_text("start\nend = time.time()\nstep\nend = time.time()\n", encoding="utf-8")
+    _init_repo(repo)
+
+    insert_before_anchor(repo, "train.py", "end = time.time()", "loss_meter = RunningAverageMeter()\n", occurrence_index=1)
+
+    assert path.read_text(encoding="utf-8") == (
+        "start\nloss_meter = RunningAverageMeter()\nend = time.time()\nstep\nend = time.time()\n"
+    )
 
 def test_run_verify_commands_writes_logs(tmp_path: Path) -> None:
     results = run_verify_commands(

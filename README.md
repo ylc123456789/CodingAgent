@@ -94,13 +94,15 @@ print(report.status)
 - `.git`, virtual environments, data directories, cache folders, and model weights are blocked by default.
 - Dangerous commands such as `sudo`, `rm -rf`, recursive ownership changes, shutdown/reboot, and `curl | bash` are blocked.
 - Small local edits should use deterministic structured actions: `replace_text`, `insert_before`, or `insert_after`.
-- Structured edits require exact one-time matches for old text or anchor text.
+- Structured edits require exact one-time matches by default; repeated matches trigger repair with match-context logs.
+- Structured edits may use `occurrence_index` only when the target occurrence is explicit and justified by context.
 - Unified diff remains available through `apply_patch`, and every run can still produce `diff.patch`.
 - Patches are validated with `git apply --check` before they are applied.
 - Malformed patches are saved as `logs/failed_patch_<step>_<attempt>.patch` with matching stderr artifacts.
 - Patch repair can return either a corrected diff or a structured edit action.
-- `ControllerAction.reasoning` is optional so minor model schema omissions do not fail an otherwise valid run.`n- If `verify_commands` are provided, a model-requested `completed` finish is downgraded unless verification evidence exists and passes.`n- If files changed after the last verification, the controller auto-runs `verify_commands` before accepting `finish`.
-
+- `ControllerAction.reasoning` is optional so minor model schema omissions do not fail an otherwise valid run.
+- If `verify_commands` are provided, a model-requested `completed` finish is downgraded unless verification evidence exists and passes.
+- If files changed after the last verification, the controller auto-runs `verify_commands` before accepting `finish`.
 ## Run Artifacts
 
 Each run writes:
