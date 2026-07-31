@@ -226,6 +226,45 @@ def test_finish_without_reasoning_auto_verifies_after_edit(tmp_path: Path, monke
     assert (repo / "coding_agent_run" / "logs" / "step_02_finish_verify" / "verify_01.stdout").exists()
     assert "loss 1.0" in report.verification_results[0].stdout_path.read_text(encoding="utf-8")
 
+def test_controller_infers_missing_path_for_structured_edit(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "toy_repo"
+    repo.mkdir()
+    (repo / "train.py").write_text("def main():\nloss_meter.update(loss.item())\n", encoding="utf-8")
+    _init_repo(repo)
+
+    class FakeClient:
+        actions = [
+            {"action": "read_file", "reasoning": "Inspect target file.", "path": "train.py"},
+            {
+                "action": "replace_text",
+                "reasoning": "Fix indentation but omit path by mistake.",
+                "old_text": "loss_meter.update(loss.item())",
+                "new_text": "    loss_meter.update(loss.item())",
+            },
+            {"action": "run_command", "reasoning": "Verify syntax.", "command": "python -m py_compile train.py"},
+            {"action": "finish", "status": "completed", "summary": "Fixed indentation."},
+        ]
+
+        def __init__(self, *args, **kwargs) -> None:
+            self.index = 0
+
+        def complete_json(self, system, user):
+            action = self.actions[self.index]
+            self.index += 1
+            return action
+
+    monkeypatch.setattr("coding_agent.controller.LLMClient", FakeClient)
+
+    report = run_code_task(
+        CodeTaskSpec(repo_path=repo, task_goal="Fix loss logging indentation.", verify_commands=["python -m py_compile train.py"], max_steps=4)
+    )
+
+    logged = (repo / "coding_agent_run" / "logs" / "action_02.json").read_text(encoding="utf-8")
+    assert report.status == "completed"
+    assert '"path": "train.py"' in logged
+    assert "Inferred missing path" in logged
+
+
 def test_controller_uses_progress_extension_to_verify_after_base_budget(tmp_path: Path, monkeypatch) -> None:
     repo = tmp_path / "toy_repo"
     repo.mkdir()
