@@ -226,6 +226,50 @@ def test_finish_without_reasoning_auto_verifies_after_edit(tmp_path: Path, monke
     assert (repo / "coding_agent_run" / "logs" / "step_02_finish_verify" / "verify_01.stdout").exists()
     assert "loss 1.0" in report.verification_results[0].stdout_path.read_text(encoding="utf-8")
 
+def test_controller_uses_progress_extension_to_verify_after_base_budget(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "toy_repo"
+    repo.mkdir()
+    (repo / "train.py").write_text("print('accuracy 0.5')\n", encoding="utf-8")
+    _init_repo(repo)
+
+    class FakeClient:
+        actions = [
+            {
+                "action": "insert_after",
+                "reasoning": "Add loss logging right before the base step budget expires.",
+                "path": "train.py",
+                "anchor_text": "print('accuracy 0.5')",
+                "insert_text": "print('loss 1.0')",
+            },
+            {"action": "run_command", "reasoning": "Use grace step to verify the edit.", "command": "python train.py"},
+        ]
+
+        def __init__(self, *args, **kwargs) -> None:
+            self.index = 0
+
+        def complete_json(self, system, user):
+            action = self.actions[self.index]
+            self.index += 1
+            return action
+
+    monkeypatch.setattr("coding_agent.controller.LLMClient", FakeClient)
+
+    report = run_code_task(
+        CodeTaskSpec(
+            repo_path=repo,
+            task_goal="Add training loss logging.",
+            verify_commands=["python train.py"],
+            max_steps=1,
+            max_extra_steps_after_progress=1,
+        )
+    )
+
+    assert report.status == "completed"
+    assert len(report.verification_results) == 1
+    assert report.verification_results[0].succeeded
+    assert "loss 1.0" in report.verification_results[0].stdout_path.read_text(encoding="utf-8")
+
+
 def test_patch_repair_response_accepts_string_notes() -> None:
     from coding_agent.controller import PatchRepairResponse
 

@@ -77,7 +77,8 @@ report = run_code_task(CodeTaskSpec(
     ],
     verify_commands=["python train.py --help"],
     allowed_paths=["train.py"],
-    max_steps=12,
+    max_steps=24,
+    max_extra_steps_after_progress=8,
     patch_repair_attempts=2,
     api_base="https://api.deepseek.com",
     api_key_env="DEEPSEEK_API_KEY",
@@ -93,9 +94,11 @@ print(report.status)
 - `allowed_paths` can restrict edits to specific files or directories.
 - `.git`, virtual environments, data directories, cache folders, and model weights are blocked by default.
 - Dangerous commands such as `sudo`, `rm -rf`, recursive ownership changes, shutdown/reboot, and `curl | bash` are blocked.
+- The controller uses a finite step budget: `max_steps` for the base budget plus `max_extra_steps_after_progress` for verification/finish grace after code changes.
 - Small local edits should use deterministic structured actions: `replace_text`, `insert_before`, or `insert_after`.
 - Structured edits require exact one-time matches by default; repeated matches trigger repair with match-context logs.
 - Structured edits may use `occurrence_index` only when the target occurrence is explicit and justified by context.
+- `read_file` supports optional `start_line`/`end_line`, and recent file reads are carried forward to discourage repeated full-file reads.
 - Unified diff remains available through `apply_patch`, and every run can still produce `diff.patch`.
 - Patches are validated with `git apply --check` before they are applied.
 - Malformed patches are saved as `logs/failed_patch_<step>_<attempt>.patch` with matching stderr artifacts.

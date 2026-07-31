@@ -81,6 +81,19 @@ def test_insert_after_anchor_treats_line_anchor_as_whole_line(tmp_path: Path) ->
     insert_after_anchor(repo, "train.py", "print('accuracy 0.5')", "print('loss 1.0')\n")
     assert path.read_text(encoding="utf-8") == "print('accuracy 0.5')\nprint('loss 1.0')\n"
 
+def test_insert_after_line_anchor_adds_missing_newline(tmp_path: Path) -> None:
+    repo = tmp_path
+    path = repo / "train.py"
+    path.write_text("loss_meter = RunningAverageMeter()\nend = time.time()\n", encoding="utf-8")
+    _init_repo(repo)
+
+    insert_after_anchor(repo, "train.py", "loss_meter = RunningAverageMeter()", "start_time = time.time()")
+
+    assert path.read_text(encoding="utf-8") == (
+        "loss_meter = RunningAverageMeter()\nstart_time = time.time()\nend = time.time()\n"
+    )
+
+
 def test_insert_before_anchor_supports_explicit_occurrence_index(tmp_path: Path) -> None:
     repo = tmp_path
     path = repo / "train.py"

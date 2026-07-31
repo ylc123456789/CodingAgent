@@ -20,6 +20,8 @@ ACTION_SCHEMA = {
     "action": "list_tree|read_file|search|replace_text|insert_before|insert_after|apply_patch|run_command|finish|ask_user",
     "reasoning": "brief reason for this next action",
     "path": "relative file path for read_file or structured edits, optional",
+    "start_line": "optional 1-based start line for read_file",
+    "end_line": "optional 1-based inclusive end line for read_file",
     "query": "search query for search, optional",
     "command": "verification command for run_command, optional",
     "patch": "unified diff for apply_patch, optional",
@@ -67,7 +69,11 @@ def run_step_controller(spec: CodeTaskSpec) -> PatchReport:
     verification_results = []
     final_error = ""
 
-    for step in range(1, spec.max_steps + 1):
+    hard_step_limit = spec.max_steps + spec.max_extra_steps_after_progress
+    for step in range(1, hard_step_limit + 1):
+        if step > spec.max_steps and not _should_continue_past_base_limit(spec, state.steps):
+            final_error = "max_steps reached"
+            break
         try:
             action = choose_next_action(spec, state, context, client)
             (log_dir / f"action_{step:02d}.json").write_text(action.model_dump_json(indent=2), encoding="utf-8")
@@ -146,6 +152,8 @@ def choose_next_action(spec: CodeTaskSpec, state: AgentState, context, client: L
         "You are a coding agent controller inspired by modern agentic coding tools. "
         "Choose exactly one next action from the allowed action set. "
         "After reading a file, prefer structured edit actions (replace_text, insert_before, insert_after) for small local edits. "
+        "Do not repeatedly read the same file when recent_file_observations already contain the needed text; make progress "
+        "by editing, searching for a specific symbol, running verification, or finishing. "
         "Use exact old_text or anchor_text copied from the current file. For inserts, prefer a unique multi-line "
         "anchor that includes nearby context instead of a short common line. Use apply_patch only for changes that are not suitable "
         "for exact structured edits. Use finish only after the diff and verification evidence satisfy the task, or when failure is clear. "
@@ -160,6 +168,10 @@ def choose_next_action(spec: CodeTaskSpec, state: AgentState, context, client: L
         "repo_tree": context.tree[:300],
         "snippets": [snippet.model_dump() for snippet in context.snippets[:8]],
         "current_diff_tail": current_diff(spec.repo_path)[-8000:],
+        "remaining_base_steps": max(spec.max_steps - len(state.steps), 0),
+        "remaining_hard_steps": max(spec.max_steps + spec.max_extra_steps_after_progress - len(state.steps), 0),
+        "progress_hints": _progress_hints(spec, state.steps),
+        "recent_file_observations": _recent_file_observations(state.steps),
         "steps": [_compact_step(step) for step in state.steps[-10:]],
         "available_actions": ACTION_SCHEMA,
     }
@@ -173,9 +185,8 @@ def execute_action(spec: CodeTaskSpec, action: ControllerAction, output_dir: Pat
     if action.action == "read_file":
         if not action.path:
             raise ValueError("read_file requires path")
-        path = ensure_path_allowed(spec.repo_path, action.path, spec.allowed_paths or None)
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        return StepRecord(step=step, action=action, observation=text[:20_000])
+        observation = _read_file_observation(spec, action)
+        return StepRecord(step=step, action=action, observation=observation)
     if action.action == "search":
         if not action.query:
             raise ValueError("search requires query")
@@ -236,6 +247,83 @@ def _run_missing_finish_verification(
 
 def _append_observation(existing: str, addition: str) -> str:
     return f"{existing}\n{addition}" if existing else addition
+
+
+def _should_continue_past_base_limit(spec: CodeTaskSpec, steps: list[StepRecord]) -> bool:
+    if spec.max_extra_steps_after_progress <= 0:
+        return False
+    last_change_step = max((step.step for step in steps if step.changed_files), default=0)
+    if last_change_step == 0:
+        return False
+    last_verify_step = max((step.step for step in steps if step.verification_results), default=0)
+    return last_verify_step < last_change_step
+
+
+def _read_file_observation(spec: CodeTaskSpec, action: ControllerAction) -> str:
+    if not action.path:
+        raise ValueError("read_file requires path")
+    path = ensure_path_allowed(spec.repo_path, action.path, spec.allowed_paths or None)
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    if action.start_line is not None or action.end_line is not None:
+        return _slice_lines(text, action.start_line, action.end_line)
+    if len(text) <= 30_000:
+        return text
+    return text[:15_000] + "\n... <read_file truncated middle; use start_line/end_line for exact ranges> ...\n" + text[-15_000:]
+
+
+def _slice_lines(text: str, start_line: int | None, end_line: int | None) -> str:
+    lines = text.splitlines(keepends=True)
+    start = max((start_line or 1) - 1, 0)
+    end = min(end_line or len(lines), len(lines))
+    if end < start:
+        raise ValueError("read_file end_line must be >= start_line")
+    return "".join(lines[start:end])
+
+
+def _recent_file_observations(steps: list[StepRecord], limit: int = 2) -> list[dict[str, object]]:
+    observations = []
+    seen = set()
+    for step in reversed(steps):
+        action = step.action
+        if action.action != "read_file" or not action.path or action.path in seen:
+            continue
+        seen.add(action.path)
+        observations.append({
+            "path": action.path,
+            "start_line": action.start_line,
+            "end_line": action.end_line,
+            "chars": len(step.observation),
+            "text": step.observation[:24_000],
+        })
+        if len(observations) >= limit:
+            break
+    return observations
+
+
+def _progress_hints(spec: CodeTaskSpec, steps: list[StepRecord]) -> list[str]:
+    hints = []
+    if not steps:
+        return hints
+    last = steps[-1].action
+    repeated_reads = 0
+    for step in reversed(steps):
+        action = step.action
+        if action.action == "read_file" and last.action == "read_file" and action.path == last.path:
+            repeated_reads += 1
+        else:
+            break
+    if repeated_reads >= 2 and last.path:
+        hints.append(
+            f"{last.path} has already been read {repeated_reads} consecutive times; use the recent_file_observations text to edit, search a specific symbol, run verification, or finish instead of reading it again."
+        )
+    remaining_base = spec.max_steps - len(steps)
+    if remaining_base <= 4:
+        hints.append("The base step budget is nearly exhausted; prefer concrete edits, verification, or finish over broad exploration.")
+    last_change_step = max((step.step for step in steps if step.changed_files), default=0)
+    last_verify_step = max((step.step for step in steps if step.verification_results), default=0)
+    if last_change_step and last_verify_step < last_change_step:
+        hints.append("Files changed after the last verification; run verification before finish.")
+    return hints
 
 
 def _execute_structured_edit_with_repair(
