@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from .apply import PatchApplyError, apply_patch_text, current_diff, extract_patch_paths, normalize_patch_text
 from .context import build_repo_context
+from .context_policy import ContextPolicy, resolve_context_policy
 from .edits import StructuredEditError, find_all, insert_after_anchor, insert_before_anchor, replace_text_once
 from .llm import LLMClient
 from .models import AgentState, CodeTaskSpec, ControllerAction, PatchReport, StepRecord
@@ -61,7 +62,8 @@ def run_step_controller(spec: CodeTaskSpec) -> PatchReport:
     output_dir = prepare_output_dir(spec)
     log_dir = output_dir / "logs"
     state = AgentState(task=spec)
-    context = build_repo_context(spec)
+    policy = resolve_context_policy(spec)
+    context = _build_context(spec, policy)
     write_initial_diff(context.initial_diff, output_dir)
     client = LLMClient(api_base=spec.api_base, api_key_env=spec.api_key_env, model=spec.model)
 
@@ -84,7 +86,7 @@ def run_step_controller(spec: CodeTaskSpec) -> PatchReport:
             write_state(state, output_dir)
 
             if action.action in {"replace_text", "insert_before", "insert_after", "apply_patch", "run_command"}:
-                context = build_repo_context(spec)
+                context = _build_context(spec, policy)
 
             if action.action == "finish":
                 auto_verification = _run_missing_finish_verification(spec, state.steps, output_dir, step)
@@ -148,6 +150,7 @@ def run_step_controller(spec: CodeTaskSpec) -> PatchReport:
 
 
 def choose_next_action(spec: CodeTaskSpec, state: AgentState, context, client: LLMClient) -> ControllerAction:
+    policy = resolve_context_policy(spec)
     system = (
         "You are a coding agent controller inspired by modern agentic coding tools. "
         "Choose exactly one next action from the allowed action set. "
@@ -165,14 +168,20 @@ def choose_next_action(spec: CodeTaskSpec, state: AgentState, context, client: L
         "constraints": spec.constraints,
         "verify_commands": spec.verify_commands,
         "allowed_paths": spec.allowed_paths,
-        "repo_tree": context.tree[:300],
-        "snippets": [snippet.model_dump() for snippet in context.snippets[:8]],
-        "current_diff_tail": current_diff(spec.repo_path)[-8000:],
+        "context_budget": {
+            "context_window_tokens": policy.context_window_tokens,
+            "input_budget_tokens": policy.input_budget_tokens,
+            "margin_ratio": spec.context_margin_ratio,
+            "output_reserve_tokens": spec.context_output_reserve_tokens,
+        },
+        "repo_tree": context.tree[:policy.repo_tree_limit],
+        "snippets": [snippet.model_dump() for snippet in context.snippets[:policy.snippet_count]],
+        "current_diff_tail": current_diff(spec.repo_path)[-policy.diff_chars:],
         "remaining_base_steps": max(spec.max_steps - len(state.steps), 0),
         "remaining_hard_steps": max(spec.max_steps + spec.max_extra_steps_after_progress - len(state.steps), 0),
         "progress_hints": _progress_hints(spec, state.steps),
-        "recent_file_observations": _recent_file_observations(state.steps),
-        "steps": [_compact_step(step) for step in state.steps[-10:]],
+        "recent_file_observations": _recent_file_observations(state.steps, policy),
+        "steps": [_compact_step(step, policy) for step in state.steps[-10:]],
         "available_actions": ACTION_SCHEMA,
     }
     return ControllerAction.model_validate(client.complete_json(system, json.dumps(user, indent=2)))
@@ -180,8 +189,9 @@ def choose_next_action(spec: CodeTaskSpec, state: AgentState, context, client: L
 
 def execute_action(spec: CodeTaskSpec, action: ControllerAction, output_dir: Path, step: int, client: LLMClient) -> StepRecord:
     if action.action == "list_tree":
-        context = build_repo_context(spec)
-        return StepRecord(step=step, action=action, observation="\n".join(context.tree[:300]))
+        policy = resolve_context_policy(spec)
+        context = _build_context(spec, policy)
+        return StepRecord(step=step, action=action, observation="\n".join(context.tree[:policy.repo_tree_limit]))
     if action.action == "read_file":
         if not action.path:
             raise ValueError("read_file requires path")
@@ -249,6 +259,15 @@ def _append_observation(existing: str, addition: str) -> str:
     return f"{existing}\n{addition}" if existing else addition
 
 
+def _build_context(spec: CodeTaskSpec, policy: ContextPolicy):
+    return build_repo_context(
+        spec,
+        max_files=policy.snippet_count,
+        max_bytes=policy.snippet_chars,
+        tree_limit=policy.repo_tree_limit,
+    )
+
+
 def _should_continue_past_base_limit(spec: CodeTaskSpec, steps: list[StepRecord]) -> bool:
     if spec.max_extra_steps_after_progress <= 0:
         return False
@@ -266,9 +285,11 @@ def _read_file_observation(spec: CodeTaskSpec, action: ControllerAction) -> str:
     text = path.read_text(encoding="utf-8", errors="ignore")
     if action.start_line is not None or action.end_line is not None:
         return _slice_lines(text, action.start_line, action.end_line)
-    if len(text) <= 30_000:
+    policy = resolve_context_policy(spec)
+    if len(text) <= policy.read_file_chars:
         return text
-    return text[:15_000] + "\n... <read_file truncated middle; use start_line/end_line for exact ranges> ...\n" + text[-15_000:]
+    half = policy.read_file_chars // 2
+    return text[:half] + "\n... <read_file truncated middle; use start_line/end_line for exact ranges> ...\n" + text[-half:]
 
 
 def _slice_lines(text: str, start_line: int | None, end_line: int | None) -> str:
@@ -280,7 +301,9 @@ def _slice_lines(text: str, start_line: int | None, end_line: int | None) -> str
     return "".join(lines[start:end])
 
 
-def _recent_file_observations(steps: list[StepRecord], limit: int = 2) -> list[dict[str, object]]:
+def _recent_file_observations(steps: list[StepRecord], policy: ContextPolicy | None = None) -> list[dict[str, object]]:
+    limit = policy.recent_file_count if policy else 2
+    char_limit = policy.recent_file_chars if policy else 24_000
     observations = []
     seen = set()
     for step in reversed(steps):
@@ -293,7 +316,7 @@ def _recent_file_observations(steps: list[StepRecord], limit: int = 2) -> list[d
             "start_line": action.start_line,
             "end_line": action.end_line,
             "chars": len(step.observation),
-            "text": step.observation[:24_000],
+            "text": step.observation[:char_limit],
         })
         if len(observations) >= limit:
             break
@@ -648,12 +671,13 @@ def _search_repo(repo: Path, query: str, limit: int = 80) -> str:
     return "\n".join(matches) if matches else "No matches."
 
 
-def _compact_step(step: StepRecord) -> dict[str, object]:
+def _compact_step(step: StepRecord, policy: ContextPolicy | None = None) -> dict[str, object]:
+    observation_chars = policy.step_observation_chars if policy else 2_000
     return {
         "step": step.step,
         "action": step.action.action,
         "reasoning": step.action.reasoning,
-        "observation_tail": step.observation[-2000:],
+        "observation_tail": step.observation[-observation_chars:],
         "changed_files": step.changed_files,
         "verification": [
             {"command": result.command, "returncode": result.returncode, "timed_out": result.timed_out}

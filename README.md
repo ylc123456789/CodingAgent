@@ -79,6 +79,7 @@ report = run_code_task(CodeTaskSpec(
     allowed_paths=["train.py"],
     max_steps=24,
     max_extra_steps_after_progress=8,
+    max_context_tokens=None,  # auto-select from model; set an int to cap input context
     patch_repair_attempts=2,
     api_base="https://api.deepseek.com",
     api_key_env="DEEPSEEK_API_KEY",
@@ -98,6 +99,7 @@ print(report.status)
 - Small local edits should use deterministic structured actions: `replace_text`, `insert_before`, or `insert_after`.
 - Structured edits require exact one-time matches by default; repeated matches trigger repair with match-context logs.
 - Structured edits may use `occurrence_index` only when the target occurrence is explicit and justified by context.
+- Context limits are selected automatically from `model`, with margin and output reserve left unused; use `max_context_tokens` or `model_context_window_tokens` to override.
 - `read_file` supports optional `start_line`/`end_line`, and recent file reads are carried forward to discourage repeated full-file reads.
 - Unified diff remains available through `apply_patch`, and every run can still produce `diff.patch`.
 - Patches are validated with `git apply --check` before they are applied.
