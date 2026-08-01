@@ -108,6 +108,7 @@ print(report.status)
 - `ControllerAction.reasoning` is optional so minor model schema omissions do not fail an otherwise valid run.
 - If `verify_commands` are provided, a model-requested `completed` finish is downgraded unless verification evidence exists and passes.
 - If files changed after the last verification, the controller auto-runs `verify_commands` before accepting `finish`.
+
 ## Run Artifacts
 
 Each run writes:

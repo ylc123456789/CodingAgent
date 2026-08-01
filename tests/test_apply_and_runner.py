@@ -1,3 +1,4 @@
+"""Test patch application, structured edits, and command running."""
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from coding_agent.runner import run_verify_commands
 
 
 def test_apply_patch_text_and_current_diff(tmp_path: Path) -> None:
+    """Verify apply patch text and current diff."""
     repo = tmp_path
     (repo / "train.py").write_text("print('accuracy')\n", encoding="utf-8")
     _init_repo(repo)
@@ -26,6 +28,7 @@ def test_apply_patch_text_and_current_diff(tmp_path: Path) -> None:
 
 
 def test_apply_patch_text_checks_patch_before_applying(tmp_path: Path) -> None:
+    """Verify apply patch text checks patch before applying."""
     repo = tmp_path
     (repo / "train.py").write_text("print('accuracy')\n", encoding="utf-8")
     _init_repo(repo)
@@ -43,6 +46,7 @@ def test_apply_patch_text_checks_patch_before_applying(tmp_path: Path) -> None:
 
 
 def test_replace_text_once_succeeds_and_rejects_ambiguous_matches(tmp_path: Path) -> None:
+    """Verify replace text once succeeds and rejects ambiguous matches."""
     repo = tmp_path
     path = repo / "train.py"
     path.write_text("print('accuracy')\n", encoding="utf-8")
@@ -60,6 +64,7 @@ def test_replace_text_once_succeeds_and_rejects_ambiguous_matches(tmp_path: Path
 
 
 def test_insert_after_anchor_succeeds_with_exact_anchor(tmp_path: Path) -> None:
+    """Verify insert after anchor succeeds with exact anchor."""
     repo = tmp_path
     path = repo / "train.py"
     path.write_text("accuracy = 0.5\nprint(accuracy)\n", encoding="utf-8")
@@ -73,6 +78,7 @@ def test_insert_after_anchor_succeeds_with_exact_anchor(tmp_path: Path) -> None:
 
 
 def test_insert_after_anchor_treats_line_anchor_as_whole_line(tmp_path: Path) -> None:
+    """Verify insert after anchor treats line anchor as whole line."""
     repo = tmp_path
     path = repo / "train.py"
     path.write_text("print('accuracy 0.5')\n", encoding="utf-8")
@@ -82,6 +88,7 @@ def test_insert_after_anchor_treats_line_anchor_as_whole_line(tmp_path: Path) ->
     assert path.read_text(encoding="utf-8") == "print('accuracy 0.5')\nprint('loss 1.0')\n"
 
 def test_insert_after_line_anchor_adds_missing_newline(tmp_path: Path) -> None:
+    """Verify insert after line anchor adds missing newline."""
     repo = tmp_path
     path = repo / "train.py"
     path.write_text("loss_meter = RunningAverageMeter()\nend = time.time()\n", encoding="utf-8")
@@ -95,6 +102,7 @@ def test_insert_after_line_anchor_adds_missing_newline(tmp_path: Path) -> None:
 
 
 def test_insert_before_anchor_supports_explicit_occurrence_index(tmp_path: Path) -> None:
+    """Verify insert before anchor supports explicit occurrence index."""
     repo = tmp_path
     path = repo / "train.py"
     path.write_text("start\nend = time.time()\nstep\nend = time.time()\n", encoding="utf-8")
@@ -107,6 +115,7 @@ def test_insert_before_anchor_supports_explicit_occurrence_index(tmp_path: Path)
     )
 
 def test_run_verify_commands_writes_logs(tmp_path: Path) -> None:
+    """Verify run verify commands writes logs."""
     results = run_verify_commands(
         tmp_path,
         ["python -c \"print('loss 1.0')\""],
@@ -119,6 +128,7 @@ def test_run_verify_commands_writes_logs(tmp_path: Path) -> None:
 
 
 def _init_repo(repo: Path) -> None:
+    """Initialize a tiny git repository for tests."""
     _run(repo, "git init")
     _run(repo, "git config user.email coding-agent@example.invalid")
     _run(repo, "git config user.name CodingAgent")
@@ -127,6 +137,7 @@ def _init_repo(repo: Path) -> None:
 
 
 def _run(cwd: Path, command: str) -> None:
+    """Run a shell command for test setup."""
     import subprocess
 
     subprocess.run(command, cwd=cwd, shell=True, check=True, capture_output=True, text=True)

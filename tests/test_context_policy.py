@@ -1,3 +1,4 @@
+"""Test model-aware context budget selection."""
 from pathlib import Path
 
 from coding_agent.context_policy import resolve_context_policy
@@ -6,10 +7,12 @@ from coding_agent.models import CodeTaskSpec, ControllerAction
 
 
 class DummyClient:
+    """Placeholder client used by tests."""
     pass
 
 
 def test_deepseek_v4_pro_gets_large_context_budget(tmp_path: Path) -> None:
+    """Verify deepseek v4 pro gets large context budget."""
     spec = CodeTaskSpec(repo_path=tmp_path, task_goal="Edit code.", model="deepseek-v4-pro")
 
     policy = resolve_context_policy(spec)
@@ -21,6 +24,7 @@ def test_deepseek_v4_pro_gets_large_context_budget(tmp_path: Path) -> None:
 
 
 def test_context_budget_override_is_respected(tmp_path: Path) -> None:
+    """Verify context budget override is respected."""
     spec = CodeTaskSpec(repo_path=tmp_path, task_goal="Edit code.", model="deepseek-v4-pro", max_context_tokens=64_000)
 
     policy = resolve_context_policy(spec)
@@ -30,6 +34,7 @@ def test_context_budget_override_is_respected(tmp_path: Path) -> None:
 
 
 def test_read_file_uses_model_context_policy(tmp_path: Path) -> None:
+    """Verify read file uses model context policy."""
     path = tmp_path / "large.py"
     path.write_text("a" * 80_000, encoding="utf-8")
     small = CodeTaskSpec(

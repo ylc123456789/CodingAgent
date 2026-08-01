@@ -1,4 +1,5 @@
-﻿from __future__ import annotations
+"""Run a DeepSeek-backed end-to-end smoke test on a toy repository."""
+from __future__ import annotations
 
 import subprocess
 import tempfile
@@ -8,6 +9,7 @@ from coding_agent import CodeTaskSpec, run_code_task
 
 
 def main() -> None:
+    """Run the script entrypoint."""
     tmp = tempfile.mkdtemp(prefix="coding-agent-deepseek-")
     repo = Path(tmp) / "toy_repo"
     repo.mkdir()
@@ -46,7 +48,6 @@ def main() -> None:
             ],
             verify_commands=["python train.py"],
             allowed_paths=["train.py"],
-            max_iterations=1,
             max_steps=8,
             timeout_seconds=60,
             api_base="https://api.deepseek.com",
@@ -71,6 +72,7 @@ def main() -> None:
 
 
 def run(cwd: Path, command: list[str]) -> None:
+    """Run a subprocess command and fail on errors."""
     subprocess.run(command, cwd=cwd, check=True, capture_output=True, text=True)
 
 

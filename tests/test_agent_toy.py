@@ -1,3 +1,4 @@
+"""Test the step controller on small toy repositories."""
 from pathlib import Path
 
 from coding_agent.agent import run_code_task
@@ -5,12 +6,14 @@ from coding_agent.models import CodeTaskSpec
 
 
 def test_run_code_task_with_mocked_controller(tmp_path: Path, monkeypatch) -> None:
+    """Verify run code task with mocked controller."""
     repo = tmp_path / "toy_repo"
     repo.mkdir()
     (repo / "train.py").write_text("print('accuracy 0.5')\n", encoding="utf-8")
     _init_repo(repo)
 
     class FakeClient:
+        """Mock LLM client used by this test."""
         actions = [
             {"action": "read_file", "reasoning": "Inspect the target script before editing.", "path": "train.py"},
             {
@@ -31,9 +34,11 @@ def test_run_code_task_with_mocked_controller(tmp_path: Path, monkeypatch) -> No
         ]
 
         def __init__(self, *args, **kwargs) -> None:
+            """Handle   init  ."""
             self.index = 0
 
         def complete_json(self, system, user):
+            """Request a JSON response and parse it."""
             action = self.actions[self.index]
             self.index += 1
             return action
@@ -52,12 +57,14 @@ def test_run_code_task_with_mocked_controller(tmp_path: Path, monkeypatch) -> No
 
 
 def test_controller_recovers_malformed_patch_with_structured_repair(tmp_path: Path, monkeypatch) -> None:
+    """Verify controller recovers malformed patch with structured repair."""
     repo = tmp_path / "toy_repo"
     repo.mkdir()
     (repo / "train.py").write_text("print('accuracy 0.5')\n", encoding="utf-8")
     _init_repo(repo)
 
     class FakeClient:
+        """Mock LLM client used by this test."""
         actions = [
             {
                 "action": "apply_patch",
@@ -75,9 +82,11 @@ def test_controller_recovers_malformed_patch_with_structured_repair(tmp_path: Pa
         ]
 
         def __init__(self, *args, **kwargs) -> None:
+            """Handle   init  ."""
             self.index = 0
 
         def complete_json(self, system, user):
+            """Request a JSON response and parse it."""
             if "repair" in system.lower():
                 return {
                     "action": "insert_after",
@@ -117,6 +126,7 @@ def test_controller_recovers_malformed_patch_with_structured_repair(tmp_path: Pa
 
 
 def test_controller_repairs_ambiguous_structured_anchor(tmp_path: Path, monkeypatch) -> None:
+    """Verify controller repairs ambiguous structured anchor."""
     repo = tmp_path / "toy_repo"
     repo.mkdir()
     (repo / "train.py").write_text(
@@ -131,6 +141,7 @@ def test_controller_repairs_ambiguous_structured_anchor(tmp_path: Path, monkeypa
     _init_repo(repo)
 
     class FakeClient:
+        """Mock LLM client used by this test."""
         actions = [
             {
                 "action": "insert_before",
@@ -144,9 +155,11 @@ def test_controller_repairs_ambiguous_structured_anchor(tmp_path: Path, monkeypa
         ]
 
         def __init__(self, *args, **kwargs) -> None:
+            """Handle   init  ."""
             self.index = 0
 
         def complete_json(self, system, user):
+            """Request a JSON response and parse it."""
             if "repair failed deterministic structured edits" in system.lower():
                 return {
                     "action": "insert_before",
@@ -184,12 +197,14 @@ def test_controller_repairs_ambiguous_structured_anchor(tmp_path: Path, monkeypa
     assert (repo / "coding_agent_run" / "logs" / "structured_edit_response_01_01.json").exists()
 
 def test_finish_without_reasoning_auto_verifies_after_edit(tmp_path: Path, monkeypatch) -> None:
+    """Verify finish without reasoning auto verifies after edit."""
     repo = tmp_path / "toy_repo"
     repo.mkdir()
     (repo / "train.py").write_text("print('accuracy 0.5')\n", encoding="utf-8")
     _init_repo(repo)
 
     class FakeClient:
+        """Mock LLM client used by this test."""
         actions = [
             {
                 "action": "insert_after",
@@ -207,9 +222,11 @@ def test_finish_without_reasoning_auto_verifies_after_edit(tmp_path: Path, monke
         ]
 
         def __init__(self, *args, **kwargs) -> None:
+            """Handle   init  ."""
             self.index = 0
 
         def complete_json(self, system, user):
+            """Request a JSON response and parse it."""
             action = self.actions[self.index]
             self.index += 1
             return action
@@ -227,12 +244,14 @@ def test_finish_without_reasoning_auto_verifies_after_edit(tmp_path: Path, monke
     assert "loss 1.0" in report.verification_results[0].stdout_path.read_text(encoding="utf-8")
 
 def test_controller_infers_missing_path_for_structured_edit(tmp_path: Path, monkeypatch) -> None:
+    """Verify controller infers missing path for structured edit."""
     repo = tmp_path / "toy_repo"
     repo.mkdir()
     (repo / "train.py").write_text("def main():\nloss_meter.update(loss.item())\n", encoding="utf-8")
     _init_repo(repo)
 
     class FakeClient:
+        """Mock LLM client used by this test."""
         actions = [
             {"action": "read_file", "reasoning": "Inspect target file.", "path": "train.py"},
             {
@@ -246,9 +265,11 @@ def test_controller_infers_missing_path_for_structured_edit(tmp_path: Path, monk
         ]
 
         def __init__(self, *args, **kwargs) -> None:
+            """Handle   init  ."""
             self.index = 0
 
         def complete_json(self, system, user):
+            """Request a JSON response and parse it."""
             action = self.actions[self.index]
             self.index += 1
             return action
@@ -266,12 +287,14 @@ def test_controller_infers_missing_path_for_structured_edit(tmp_path: Path, monk
 
 
 def test_controller_uses_progress_extension_to_verify_after_base_budget(tmp_path: Path, monkeypatch) -> None:
+    """Verify controller uses progress extension to verify after base budget."""
     repo = tmp_path / "toy_repo"
     repo.mkdir()
     (repo / "train.py").write_text("print('accuracy 0.5')\n", encoding="utf-8")
     _init_repo(repo)
 
     class FakeClient:
+        """Mock LLM client used by this test."""
         actions = [
             {
                 "action": "insert_after",
@@ -284,9 +307,11 @@ def test_controller_uses_progress_extension_to_verify_after_base_budget(tmp_path
         ]
 
         def __init__(self, *args, **kwargs) -> None:
+            """Handle   init  ."""
             self.index = 0
 
         def complete_json(self, system, user):
+            """Request a JSON response and parse it."""
             action = self.actions[self.index]
             self.index += 1
             return action
@@ -310,12 +335,14 @@ def test_controller_uses_progress_extension_to_verify_after_base_budget(tmp_path
 
 
 def test_patch_repair_response_accepts_string_notes() -> None:
+    """Verify patch repair response accepts string notes."""
     from coding_agent.controller import PatchRepairResponse
 
     response = PatchRepairResponse.model_validate({"action": "insert_after", "notes": "fixed anchor"})
     assert response.notes == ["fixed anchor"]
 
 def _init_repo(repo: Path) -> None:
+    """Initialize a tiny git repository for tests."""
     _run(repo, "git init")
     _run(repo, "git config user.email coding-agent@example.invalid")
     _run(repo, "git config user.name CodingAgent")
@@ -324,6 +351,7 @@ def _init_repo(repo: Path) -> None:
 
 
 def _run(cwd: Path, command: str) -> None:
+    """Run a shell command for test setup."""
     import subprocess
 
     subprocess.run(command, cwd=cwd, shell=True, check=True, capture_output=True, text=True)

@@ -1,3 +1,4 @@
+"""Run a DeepSeek-backed smoke test for patch repair behavior."""
 from __future__ import annotations
 
 import subprocess
@@ -12,6 +13,7 @@ from coding_agent.models import CodeTaskSpec
 
 
 def main() -> None:
+    """Run the script entrypoint."""
     tmp = tempfile.mkdtemp(prefix="coding-agent-repair-")
     repo = Path(tmp) / "toy_repo"
     repo.mkdir()
@@ -64,6 +66,7 @@ def main() -> None:
 
 
 def apply_repaired_edit(spec: CodeTaskSpec, repaired) -> list[str]:
+    """Apply a repaired edit action in the smoke test."""
     if repaired.action == "apply_patch":
         return apply_patch_text(spec.repo_path, repaired.patch or "", spec.allowed_paths)
     if repaired.action == "replace_text":
@@ -76,6 +79,7 @@ def apply_repaired_edit(spec: CodeTaskSpec, repaired) -> list[str]:
 
 
 def run(cwd: Path, command: list[str]) -> None:
+    """Run a subprocess command and fail on errors."""
     subprocess.run(command, cwd=cwd, check=True, capture_output=True, text=True)
 
 
