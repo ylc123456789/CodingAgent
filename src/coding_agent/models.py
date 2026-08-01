@@ -103,22 +103,6 @@ class RepoContext(BaseModel):
     initial_diff: str = ""
 
 
-class EditPlan(BaseModel):
-    summary: str
-    target_files: list[str]
-    allowed_edit_type: Literal[
-        "logging_only",
-        "config_only",
-        "bugfix",
-        "new_file",
-        "general",
-    ] = "general"
-    risks: list[str] = Field(default_factory=list)
-    verification: list[str] = Field(default_factory=list)
-    needs_user_input: list[str] = Field(default_factory=list)
-    feasibility: Literal["ready_to_edit", "needs_context", "blocked", "unsafe"]
-
-
 class CommandResult(BaseModel):
     command: str
     returncode: int
@@ -171,15 +155,6 @@ class StepRecord(BaseModel):
     error: str | None = None
 
 
-class PatchAttempt(BaseModel):
-    iteration: int
-    plan: EditPlan | None = None
-    patch_text: str = ""
-    applied: bool = False
-    error: str | None = None
-    verification_results: list[CommandResult] = Field(default_factory=list)
-
-
 class PatchReport(BaseModel):
     status: Literal["completed", "failed", "blocked", "needs_user_input"]
     changed_files: list[str]
@@ -192,6 +167,5 @@ class PatchReport(BaseModel):
 class AgentState(BaseModel):
     task: CodeTaskSpec
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    attempts: list[PatchAttempt] = Field(default_factory=list)
     steps: list[StepRecord] = Field(default_factory=list)
     report: PatchReport | None = None
