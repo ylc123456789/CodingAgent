@@ -130,6 +130,7 @@ class ControllerAction(BaseModel):
         "insert_before",
         "insert_after",
         "apply_patch",
+        "write_file",
         "run_command",
         "finish",
         "ask_user",
