@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 
+from ..apply import current_diff
 from ..context_policy import ContextPolicy, resolve_context_policy
+from ..llm import LLMClient
+from ..models import AgentState, CodeTaskSpec, ControllerAction, StepRecord
 
 ACTION_SCHEMA = {
     "action": "list_tree|read_file|search|replace_text|insert_before|insert_after|apply_patch|run_command|finish|ask_user",

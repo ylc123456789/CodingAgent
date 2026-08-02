@@ -13,6 +13,8 @@ from ..llm import LLMClient
 from ..models import AgentState, CodeTaskSpec, ControllerAction, PatchReport, StepRecord
 from ..report import prepare_output_dir, write_diff, write_initial_diff, write_patch_report, write_state
 from ..reviewer import review_outcome
+from .actions import execute_action, _normalize_action
+from .prompts import choose_next_action
 
 def run_step_controller(spec: CodeTaskSpec) -> PatchReport:
     """Run the controller loop until finish, failure, or budget exhaustion."""
