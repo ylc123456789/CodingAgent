@@ -13,6 +13,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import tempfile
+import datetime
 import time
 import json
 from pathlib import Path
@@ -111,7 +112,7 @@ CASES: list[tuple[str, str, SetupFn]] = [
 # ============================================================
 
 def clone_torchdiffeq() -> Path:
-    tmp = Path.cwd() / "runs"
+    tmp = Path.cwd() / "runs" / datetime.datetime.now().strftime("%Y%m%d-%H%M%S") / datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     repo = tmp / "torchdiffeq"
     print(f"Repo: {repo}")
     print(f"Results: {tmp / 'results'}/\n")
