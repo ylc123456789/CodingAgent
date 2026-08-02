@@ -14,7 +14,7 @@ from ..models import CodeTaskSpec, ControllerAction, StepRecord
 from ..report import write_diff
 from ..runner import run_verify_commands
 from ..safety import SafetyError, ensure_path_allowed
-from .repair import repair_patch, repair_structured_edit
+from .repair import repair_patch, repair_structured_edit, _save_failed_patch, _save_structured_edit_failure
 
 def _normalize_action(spec: CodeTaskSpec, steps: list[StepRecord], action: ControllerAction) -> ControllerAction:
     """Fill safe missing fields before executing an action."""
@@ -92,7 +92,7 @@ def execute_action(spec: CodeTaskSpec, action: ControllerAction, output_dir: Pat
     """Execute one normalized controller action."""
     if action.action == "list_tree":
         policy = resolve_context_policy(spec)
-        context = _build_context(spec, policy)
+        context = build_repo_context(spec, max_files=policy.snippet_count, max_bytes=policy.snippet_chars, tree_limit=policy.repo_tree_limit)
         return StepRecord(step=step, action=action, observation="\n".join(context.tree[:policy.repo_tree_limit]))
     if action.action == "read_file":
         if not action.path:
