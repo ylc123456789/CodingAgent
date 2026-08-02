@@ -10,3 +10,4 @@ dist/
 venv/
 env/
 coding_agent_run/
+runs/

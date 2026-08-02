@@ -5,7 +5,7 @@ Usage:
     export DEEPSEEK_API_KEY="your-key"
     python tests/batch_real_tasks.py
 
-Each case's artifacts are saved under /tmp/ca-batch-*/results/<case_name>/
+Each case's artifacts are saved under runs/torchdiffeq/results/<case_name>/
 so you can inspect individual runs after the batch completes.
 """
 from __future__ import annotations
@@ -111,7 +111,7 @@ CASES: list[tuple[str, str, SetupFn]] = [
 # ============================================================
 
 def clone_torchdiffeq() -> Path:
-    tmp = Path(tempfile.mkdtemp(prefix="ca-batch-"))
+    tmp = Path.cwd() / "runs"
     repo = tmp / "torchdiffeq"
     print(f"Repo: {repo}")
     print(f"Results: {tmp / 'results'}/\n")
