@@ -10,7 +10,7 @@ from ..llm import LLMClient
 from ..models import AgentState, CodeTaskSpec, ControllerAction, StepRecord
 
 ACTION_SCHEMA = {
-    "action": "list_tree|read_file|search|replace_text|insert_before|insert_after|apply_patch|run_command|finish|ask_user",
+    "action": "list_tree|read_file|search|replace_text|insert_before|insert_after|apply_patch|write_file|run_command|finish|ask_user",
     "reasoning": "brief reason for this next action",
     "path": "relative file path for read_file or structured edits, optional",
     "start_line": "optional 1-based start line for read_file",
@@ -18,6 +18,7 @@ ACTION_SCHEMA = {
     "query": "search query for search, optional",
     "command": "verification command for run_command, optional",
     "patch": "unified diff for apply_patch, optional",
+    "content": "full file content for write_file when creating or overwriting a file",
     "old_text": "exact text copied from the current file for replace_text",
     "new_text": "replacement text for replace_text",
     "anchor_text": "exact unique anchor copied from the current file for insert_before/insert_after; prefer several adjacent lines over a short common line",

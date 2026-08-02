@@ -129,6 +129,23 @@ def execute_action(spec: CodeTaskSpec, action: ControllerAction, output_dir: Pat
             ),
             verification_results=results,
         )
+    if action.action == "write_file":
+        if not action.path:
+            raise ValueError("write_file requires path")
+        if action.content is None:
+            raise ValueError("write_file requires content")
+        file_path = ensure_path_allowed(spec.repo_path, action.path, spec.allowed_paths or None)
+        if file_path.exists():
+            return StepRecord(step=step, action=action, observation=f"write_file refused: {action.path} already exists. Use replace_text to edit existing files.", error=f"file already exists: {action.path}")
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(action.content, encoding="utf-8")
+        diff_path = write_diff(current_diff(spec.repo_path), output_dir)
+        syntax_note = _check_syntax_after_edit(spec.repo_path, action.path)
+        return StepRecord(
+            step=step, action=action,
+            observation=f"Created {action.path} ({len(action.content)} chars). Current diff written to {diff_path}.{syntax_note}",
+            changed_files=[action.path],
+        )
     if action.action in {"finish", "ask_user"}:
         return StepRecord(step=step, action=action, observation=action.summary or action.reasoning)
     raise ValueError(f"unsupported action: {action.action}")
