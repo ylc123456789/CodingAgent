@@ -43,7 +43,7 @@ def test_run_code_task_with_mocked_controller(tmp_path: Path, monkeypatch) -> No
             self.index += 1
             return action
 
-    monkeypatch.setattr("coding_agent.controller.LLMClient", FakeClient)
+    monkeypatch.setattr("coding_agent.controller.loop.LLMClient", FakeClient)
 
     report = run_code_task(
         CodeTaskSpec(repo_path=repo, task_goal="Add training loss logging.", verify_commands=["python train.py"], max_steps=4)
@@ -99,7 +99,7 @@ def test_controller_recovers_malformed_patch_with_structured_repair(tmp_path: Pa
             self.index += 1
             return action
 
-    monkeypatch.setattr("coding_agent.controller.LLMClient", FakeClient)
+    monkeypatch.setattr("coding_agent.controller.loop.LLMClient", FakeClient)
 
     report = run_code_task(
         CodeTaskSpec(
@@ -177,7 +177,7 @@ def test_controller_repairs_ambiguous_structured_anchor(tmp_path: Path, monkeypa
             self.index += 1
             return action
 
-    monkeypatch.setattr("coding_agent.controller.LLMClient", FakeClient)
+    monkeypatch.setattr("coding_agent.controller.loop.LLMClient", FakeClient)
 
     report = run_code_task(
         CodeTaskSpec(
@@ -231,7 +231,7 @@ def test_finish_without_reasoning_auto_verifies_after_edit(tmp_path: Path, monke
             self.index += 1
             return action
 
-    monkeypatch.setattr("coding_agent.controller.LLMClient", FakeClient)
+    monkeypatch.setattr("coding_agent.controller.loop.LLMClient", FakeClient)
 
     report = run_code_task(
         CodeTaskSpec(repo_path=repo, task_goal="Add training loss logging.", verify_commands=["python train.py"], max_steps=2)
@@ -274,7 +274,7 @@ def test_controller_infers_missing_path_for_structured_edit(tmp_path: Path, monk
             self.index += 1
             return action
 
-    monkeypatch.setattr("coding_agent.controller.LLMClient", FakeClient)
+    monkeypatch.setattr("coding_agent.controller.loop.LLMClient", FakeClient)
 
     report = run_code_task(
         CodeTaskSpec(repo_path=repo, task_goal="Fix loss logging indentation.", verify_commands=["python -m py_compile train.py"], max_steps=4)
@@ -316,7 +316,7 @@ def test_controller_uses_progress_extension_to_verify_after_base_budget(tmp_path
             self.index += 1
             return action
 
-    monkeypatch.setattr("coding_agent.controller.LLMClient", FakeClient)
+    monkeypatch.setattr("coding_agent.controller.loop.LLMClient", FakeClient)
 
     report = run_code_task(
         CodeTaskSpec(
@@ -336,7 +336,7 @@ def test_controller_uses_progress_extension_to_verify_after_base_budget(tmp_path
 
 def test_patch_repair_response_accepts_string_notes() -> None:
     """Verify patch repair response accepts string notes."""
-    from coding_agent.controller import PatchRepairResponse
+    from coding_agent.controller.repair import PatchRepairResponse
 
     response = PatchRepairResponse.model_validate({"action": "insert_after", "notes": "fixed anchor"})
     assert response.notes == ["fixed anchor"]

@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 from coding_agent.apply import PatchApplyError, apply_patch_text, current_diff
-from coding_agent.controller import repair_patch
+from coding_agent.controller.repair import repair_patch
 from coding_agent.edits import insert_after_anchor, insert_before_anchor, replace_text_once
 from coding_agent.llm import LLMClient
 from coding_agent.models import CodeTaskSpec
