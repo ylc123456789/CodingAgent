@@ -180,7 +180,7 @@ def run_one(name: str, description: str, setup: SetupFn, repo: Path) -> dict:
 
     cfg = setup(repo)
     spec = CodeTaskSpec(
-        repo_path=cfg["repo_path"],
+        repo_path=repo,
         task_goal=cfg["task_goal"],
         constraints=cfg.get("constraints", []),
         verify_commands=cfg.get("verify_commands", []),
