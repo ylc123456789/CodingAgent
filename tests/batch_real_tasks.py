@@ -99,6 +99,24 @@ def _case_assertion(repo: Path) -> dict:
         "max_steps": 8,
     }
 
+
+def _case_false_negative(repo: Path) -> dict:
+    """Test that a failed grep verify does not override agent finish status."""
+    return {
+        "task_goal": (
+            "In examples/odenet_mnist.py, add a comment '# coding-agent-checkpoint' "
+            "on the line immediately before the if __name__ == __main__ line. "
+            "Use insert_before. Do not change any other code."
+        ),
+        "constraints": ["Only edit examples/odenet_mnist.py.", "Keep the patch minimal."],
+        "verify_commands": [
+            "python -m py_compile examples/odenet_mnist.py",
+            "grep -c ThisPatternDoesNotExistAnywhere examples/odenet_mnist.py",
+        ],
+        "allowed_paths": ["examples/odenet_mnist.py"],
+        "max_steps": 8,
+    }
+
 CASES: list[tuple[str, str, SetupFn]] = [
     ("01_argparse",   "Add --epochs CLI argument to argparse block",    _case_argparse),
     ("02_multi_edit", "Add import + annotate time.time() calls",        _case_multi_edit),
