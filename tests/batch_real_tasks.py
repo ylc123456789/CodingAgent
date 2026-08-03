@@ -123,6 +123,7 @@ CASES: list[tuple[str, str, SetupFn]] = [
     ("03_nested",     "Add timing meters inside deep training loop",    _case_nested_loop),
     ("04_file_create","Create new MetricsTracker class from scratch",   _case_file_create),
     ("05_assertion",  "Insert defensive isinstance assertion",         _case_assertion),
+    ("06_false_neg",  "Failed grep must not override agent finish status", _case_false_negative),
 ]
 
 # ============================================================
