@@ -16,6 +16,7 @@ CodeTaskSpec
        -> replace_text
        -> insert_before / insert_after
        -> apply_patch
+       -> write_file
        -> run_command
        -> finish / ask_user
   -> Safety Layer
@@ -106,7 +107,7 @@ print(report.status)
 - Malformed patches are saved as `logs/failed_patch_<step>_<attempt>.patch` with matching stderr artifacts.
 - Patch repair can return either a corrected diff or a structured edit action.
 - `ControllerAction.reasoning` is optional so minor model schema omissions do not fail an otherwise valid run.
-- If `verify_commands` are provided, a model-requested `completed` finish is downgraded unless verification evidence exists and passes.
+- The agent's explicit `finish` status is authoritative; verification results are recorded as evidence for the caller to inspect but do not override the agent's judgment.
 - If files changed after the last verification, the controller auto-runs `verify_commands` before accepting `finish`.
 
 ## Run Artifacts
@@ -147,3 +148,17 @@ Not yet a full research-design agent by itself:
 - experiment design should still be decided by an upper-level research agent
 - reviewer logic is still mostly evidence/rule based
 - multi-operation structured edit batches and AST-aware edits are future work
+
+## Batch Tests
+
+Real-API integration tests covering diverse ML editing patterns:
+
+```bash
+conda activate CodingAgent
+export DEEPSEEK_API_KEY="your-key"
+python tests/batch_real_tasks.py
+```
+
+Runs 6 cases against torchdiffeq: argparse modification, multi-edit,
+nested loop edits, file creation, assertion insertion, and false-negative
+verification handling. Results saved under `runs/<timestamp>/results/`.
