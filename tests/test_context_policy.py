@@ -13,7 +13,7 @@ class DummyClient:
 
 def test_deepseek_v4_pro_gets_large_context_budget(tmp_path: Path) -> None:
     """Verify deepseek v4 pro gets large context budget."""
-    spec = CodeTaskSpec(workspace_path=tmp_path, task_goal="Edit code.", model="deepseek-v4-pro")
+    spec = CodeTaskSpec(workspace_path=tmp_path, task_goal="Edit code.", model="deepseek-v4-pro", output_dir=tmp_path / "out")
 
     policy = resolve_context_policy(spec)
 
@@ -25,7 +25,7 @@ def test_deepseek_v4_pro_gets_large_context_budget(tmp_path: Path) -> None:
 
 def test_context_budget_override_is_respected(tmp_path: Path) -> None:
     """Verify context budget override is respected."""
-    spec = CodeTaskSpec(workspace_path=tmp_path, task_goal="Edit code.", model="deepseek-v4-pro", max_context_tokens=64_000)
+    spec = CodeTaskSpec(workspace_path=tmp_path, task_goal="Edit code.", model="deepseek-v4-pro", max_context_tokens=64_000, output_dir=tmp_path / "out")
 
     policy = resolve_context_policy(spec)
 
@@ -42,8 +42,9 @@ def test_read_file_uses_model_context_policy(tmp_path: Path) -> None:
         task_goal="Read file.",
         model="unknown-small-model",
         max_context_tokens=8_000,
+            output_dir=tmp_path / "out",
     )
-    large = CodeTaskSpec(workspace_path=tmp_path, task_goal="Read file.", model="deepseek-v4-pro")
+    large = CodeTaskSpec(workspace_path=tmp_path, task_goal="Read file.", model="deepseek-v4-pro", output_dir=tmp_path / "out")
     action = ControllerAction(action="read_file", path="large.py")
 
     small_obs = execute_action(small, action, tmp_path / "small_out", 1, DummyClient()).observation

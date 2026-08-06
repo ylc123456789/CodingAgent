@@ -28,7 +28,7 @@ class CodeTaskSpec(BaseModel):
     api_base: str = "https://api.openai.com/v1"
     api_key_env: str = "OPENAI_API_KEY"
     model: str = "gpt-4.1"
-    output_dir: Path | None = None
+    output_dir: Path
 
     @field_validator("workspace_path")
     @classmethod

@@ -53,6 +53,7 @@ def main() -> None:
             api_base="https://api.deepseek.com",
             api_key_env="DEEPSEEK_API_KEY",
             model="deepseek-v4-pro",
+            output_dir=repo / "coding_agent_run",
         )
     )
 
