@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import shutil
 import tempfile
 import datetime
 import time
@@ -166,7 +167,7 @@ def run_one(name: str, description: str, setup: SetupFn, repo: Path, results_dir
     out_dir = results_dir / name
     cfg = setup(repo)
     spec = CodeTaskSpec(
-        repo_path=repo,
+        workspace_path=repo,
         task_goal=cfg["task_goal"],
         constraints=cfg.get("constraints", []),
         verify_commands=cfg.get("verify_commands", []),
@@ -219,9 +220,16 @@ def main() -> None:
     results_dir.mkdir(exist_ok=True)
 
     results = []
+    scratch_dir = tmp / "scratch_workspace"
     for name, desc, setup in CASES:
-        reset_repo(repo)
-        r = run_one(name, desc, setup, repo, results_dir)
+        if name == "07_scratch":
+            if scratch_dir.exists():
+                shutil.rmtree(scratch_dir)
+            scratch_dir.mkdir(parents=True)
+            r = run_one(name, desc, setup, scratch_dir, results_dir)
+        else:
+            reset_repo(repo)
+            r = run_one(name, desc, setup, repo, results_dir)
         results.append(r)
         icon = "[OK]" if r["status"] == "completed" and r["syntax_ok"] else "[FAIL]"
         print(f"  {icon} {r['status']:<12} {r['steps']:2d} steps  {r['time']:4.0f}s  syntax={'OK' if r['syntax_ok'] else 'FAIL'}")

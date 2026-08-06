@@ -35,7 +35,7 @@ def main() -> None:
 
     report = run_code_task(
         CodeTaskSpec(
-            repo_path=repo,
+            workspace_path=repo,
             task_goal=(
                 "Modify train.py minimally so the script reports a loss value "
                 "in addition to accuracy, without changing the existing accuracy "

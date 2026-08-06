@@ -46,7 +46,7 @@ def test_run_code_task_with_mocked_controller(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setattr("coding_agent.controller.loop.LLMClient", FakeClient)
 
     report = run_code_task(
-        CodeTaskSpec(repo_path=repo, task_goal="Add training loss logging.", verify_commands=["python train.py"], max_steps=4)
+        CodeTaskSpec(workspace_path=repo, task_goal="Add training loss logging.", verify_commands=["python train.py"], max_steps=4)
     )
 
     assert report.status == "completed"
@@ -103,7 +103,7 @@ def test_controller_recovers_malformed_patch_with_structured_repair(tmp_path: Pa
 
     report = run_code_task(
         CodeTaskSpec(
-            repo_path=repo,
+            workspace_path=repo,
             task_goal="Add training loss logging.",
             verify_commands=["python train.py"],
             max_steps=3,
@@ -181,7 +181,7 @@ def test_controller_repairs_ambiguous_structured_anchor(tmp_path: Path, monkeypa
 
     report = run_code_task(
         CodeTaskSpec(
-            repo_path=repo,
+            workspace_path=repo,
             task_goal="Add training loss logging.",
             verify_commands=["python -m py_compile train.py"],
             max_steps=3,
@@ -234,7 +234,7 @@ def test_finish_without_reasoning_auto_verifies_after_edit(tmp_path: Path, monke
     monkeypatch.setattr("coding_agent.controller.loop.LLMClient", FakeClient)
 
     report = run_code_task(
-        CodeTaskSpec(repo_path=repo, task_goal="Add training loss logging.", verify_commands=["python train.py"], max_steps=2)
+        CodeTaskSpec(workspace_path=repo, task_goal="Add training loss logging.", verify_commands=["python train.py"], max_steps=2)
     )
 
     assert report.status == "completed"
@@ -277,7 +277,7 @@ def test_controller_infers_missing_path_for_structured_edit(tmp_path: Path, monk
     monkeypatch.setattr("coding_agent.controller.loop.LLMClient", FakeClient)
 
     report = run_code_task(
-        CodeTaskSpec(repo_path=repo, task_goal="Fix loss logging indentation.", verify_commands=["python -m py_compile train.py"], max_steps=4)
+        CodeTaskSpec(workspace_path=repo, task_goal="Fix loss logging indentation.", verify_commands=["python -m py_compile train.py"], max_steps=4)
     )
 
     logged = (repo / "coding_agent_run" / "logs" / "action_02.json").read_text(encoding="utf-8")
@@ -320,7 +320,7 @@ def test_controller_uses_progress_extension_to_verify_after_base_budget(tmp_path
 
     report = run_code_task(
         CodeTaskSpec(
-            repo_path=repo,
+            workspace_path=repo,
             task_goal="Add training loss logging.",
             verify_commands=["python train.py"],
             max_steps=1,

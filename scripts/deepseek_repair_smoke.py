@@ -33,7 +33,7 @@ def main() -> None:
 """
     output_dir = repo / "coding_agent_run"
     spec = CodeTaskSpec(
-        repo_path=repo,
+        workspace_path=repo,
         task_goal="Add loss logging while preserving the existing accuracy output.",
         constraints=["Only edit train.py.", "Keep the patch minimal."],
         allowed_paths=["train.py"],
@@ -68,13 +68,13 @@ def main() -> None:
 def apply_repaired_edit(spec: CodeTaskSpec, repaired) -> list[str]:
     """Apply a repaired edit action in the smoke test."""
     if repaired.action == "apply_patch":
-        return apply_patch_text(spec.repo_path, repaired.patch or "", spec.allowed_paths)
+        return apply_patch_text(spec.workspace_path, repaired.patch or "", spec.allowed_paths)
     if repaired.action == "replace_text":
-        return [replace_text_once(spec.repo_path, repaired.path or "", repaired.old_text or "", repaired.new_text or "", spec.allowed_paths)]
+        return [replace_text_once(spec.workspace_path, repaired.path or "", repaired.old_text or "", repaired.new_text or "", spec.allowed_paths)]
     if repaired.action == "insert_before":
-        return [insert_before_anchor(spec.repo_path, repaired.path or "", repaired.anchor_text or "", repaired.insert_text or "", spec.allowed_paths)]
+        return [insert_before_anchor(spec.workspace_path, repaired.path or "", repaired.anchor_text or "", repaired.insert_text or "", spec.allowed_paths)]
     if repaired.action == "insert_after":
-        return [insert_after_anchor(spec.repo_path, repaired.path or "", repaired.anchor_text or "", repaired.insert_text or "", spec.allowed_paths)]
+        return [insert_after_anchor(spec.workspace_path, repaired.path or "", repaired.anchor_text or "", repaired.insert_text or "", spec.allowed_paths)]
     raise RuntimeError(f"unsupported repair action: {repaired.action}")
 
 
