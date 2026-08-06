@@ -64,35 +64,65 @@ model=deepseek-v4-pro
 api_key_env=DEEPSEEK_API_KEY
 ```
 
-## Python API
+## API Reference
+
+### Input: `CodeTaskSpec`
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `workspace_path` | `Path` | **yes** | — | Working directory. Created if it does not exist. |
+| `output_dir` | `Path` | **yes** | — | Where run artifacts are written. |
+| `task_goal` | `str` | **yes** | — | Natural-language task description. |
+| `model` | `str` | no | `"gpt-4.1"` | Model name. |
+| `api_base` | `str` | no | `"https://api.openai.com/v1"` | OpenAI-compatible endpoint. |
+| `api_key_env` | `str` | no | `"OPENAI_API_KEY"` | Env var holding the API key. |
+| `constraints` | `list[str]` | no | `[]` | Hard constraints for the prompt. |
+| `verify_commands` | `list[str]` | no | `[]` | Shell commands the agent runs to verify edits. |
+| `allowed_paths` | `list[str]` | no | `[]` | File whitelist. Empty = all safe paths. |
+| `max_steps` | `int` | no | `24` | Base step budget. |
+| `max_extra_steps_after_progress` | `int` | no | `8` | Grace steps after last file change. |
+| `patch_repair_attempts` | `int` | no | `2` | LLM repair attempts per failed edit. |
+| `timeout_seconds` | `int` | no | `900` | Per-command timeout. |
+| `max_context_tokens` | `int\|None` | no | `None` | Hard cap on prompt tokens. |
+| `model_context_window_tokens` | `int\|None` | no | `None` | Override context window size. |
+| `context_margin_ratio` | `float` | no | `0.20` | Safety margin fraction. |
+| `context_output_reserve_tokens` | `int` | no | `16384` | Token reserve for model output. |
+
+### Output: `PatchReport`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `str` | `"completed"`, `"failed"`, `"blocked"`, or `"needs_user_input"`. Agent's finish status is authoritative; verification failures are recorded as risks, not overrides. |
+| `changed_files` | `list[str]` | Paths modified during the run. |
+| `diff_path` | `Path\|None` | Path to `diff.patch`. |
+| `verification_results` | `list[CommandResult]` | Exit code and log paths per verification command. |
+| `summary` | `str` | Human-readable summary. |
+| `residual_risks` | `list[str]` | Warnings and known issues. |
+
+### Minimal Example
 
 ```python
 from coding_agent import CodeTaskSpec, run_code_task
 
 report = run_code_task(CodeTaskSpec(
-    repo_path="/path/to/repo",
-    task_goal="Add training loss logging without changing training semantics.",
-    constraints=[
-        "Do not change model architecture.",
-        "Do not change optimizer, dataset split, or evaluation metric.",
-    ],
+    workspace_path="/path/to/project",   # required
+    output_dir="/path/to/artifacts",     # required
+    task_goal="Add training loss logging.",
+    constraints=["Do not change model architecture."],
     verify_commands=["python train.py --help"],
     allowed_paths=["train.py"],
-    max_steps=24,
-    max_extra_steps_after_progress=8,
-    max_context_tokens=None,  # auto-select from model; set an int to cap input context
-    patch_repair_attempts=2,
+    model="deepseek-v4-pro",
     api_base="https://api.deepseek.com",
     api_key_env="DEEPSEEK_API_KEY",
-    model="deepseek-v4-pro",
 ))
 
 print(report.status)
 ```
 
+
 ## Safety Defaults
 
-- Only files inside `repo_path` may be edited.
+- Only files inside `workspace_path` may be edited.
 - `allowed_paths` can restrict edits to specific files or directories.
 - `.git`, virtual environments, data directories, cache folders, and model weights are blocked by default.
 - Dangerous commands such as `sudo`, `rm -rf`, recursive ownership changes, shutdown/reboot, and `curl | bash` are blocked.
