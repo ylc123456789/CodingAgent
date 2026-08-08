@@ -7,6 +7,6 @@ description_for_router: |
   2) code_question：只读代码问答（训练入口在哪、loss 怎么算、报错定位），
      回答附文件/行号证据，不修改任何文件。
 capabilities: [code_modification, code_question]
-side_effects: none_for_question__workspace_for_modification
+side_effects: workspace
 input_contract: run_code_task(CodeTaskSpec) -> PatchReport; run_code_question(CodeQuestionSpec) -> CodeExplanation
 status: available
