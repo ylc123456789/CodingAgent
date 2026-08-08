@@ -51,9 +51,9 @@ def test_run_code_task_with_mocked_controller(tmp_path: Path, monkeypatch) -> No
 
     assert report.status == "completed"
     assert report.changed_files == ["train.py"]
-    assert (repo / "coding_agent_run" / "patch_report.md").exists()
-    assert (repo / "coding_agent_run" / "logs" / "action_01.json").exists()
-    assert "loss 1.0" in (repo / "coding_agent_run" / "logs" / "step_03" / "verify_01.stdout").read_text(encoding="utf-8")
+    assert (repo / "out" / "patch_report.md").exists()
+    assert (repo / "out" / "logs" / "action_01.json").exists()
+    assert "loss 1.0" in (repo / "out" / "logs" / "step_03" / "verify_01.stdout").read_text(encoding="utf-8")
 
 
 def test_controller_recovers_malformed_patch_with_structured_repair(tmp_path: Path, monkeypatch) -> None:
@@ -107,11 +107,12 @@ def test_controller_recovers_malformed_patch_with_structured_repair(tmp_path: Pa
             task_goal="Add training loss logging.",
             verify_commands=["python train.py"],
             max_steps=3,
+            output_dir=repo / "out",
             patch_repair_attempts=2,
         )
     )
 
-    logs = repo / "coding_agent_run" / "logs"
+    logs = repo / "out" / "logs"
     assert report.status == "completed"
     assert report.changed_files == ["train.py"]
     assert (logs / "failed_patch_01_01.patch").exists()
@@ -185,6 +186,7 @@ def test_controller_repairs_ambiguous_structured_anchor(tmp_path: Path, monkeypa
             task_goal="Add training loss logging.",
             verify_commands=["python -m py_compile train.py"],
             max_steps=3,
+            output_dir=repo / "out",
             patch_repair_attempts=2,
         )
     )
@@ -192,9 +194,9 @@ def test_controller_repairs_ambiguous_structured_anchor(tmp_path: Path, monkeypa
     text = (repo / "train.py").read_text(encoding="utf-8")
     assert report.status == "completed"
     assert text.startswith("loss_meter = RunningAverageMeter()\nbatch_time_meter")
-    assert (repo / "coding_agent_run" / "logs" / "failed_structured_edit_01_01.json").exists()
-    assert (repo / "coding_agent_run" / "logs" / "structured_edit_context_01_01.json").exists()
-    assert (repo / "coding_agent_run" / "logs" / "structured_edit_response_01_01.json").exists()
+    assert (repo / "out" / "logs" / "failed_structured_edit_01_01.json").exists()
+    assert (repo / "out" / "logs" / "structured_edit_context_01_01.json").exists()
+    assert (repo / "out" / "logs" / "structured_edit_response_01_01.json").exists()
 
 def test_finish_without_reasoning_auto_verifies_after_edit(tmp_path: Path, monkeypatch) -> None:
     """Verify finish without reasoning auto verifies after edit."""
@@ -240,7 +242,7 @@ def test_finish_without_reasoning_auto_verifies_after_edit(tmp_path: Path, monke
     assert report.status == "completed"
     assert len(report.verification_results) == 1
     assert report.verification_results[0].succeeded
-    assert (repo / "coding_agent_run" / "logs" / "step_02_finish_verify" / "verify_01.stdout").exists()
+    assert (repo / "out" / "logs" / "step_02_finish_verify" / "verify_01.stdout").exists()
     assert "loss 1.0" in report.verification_results[0].stdout_path.read_text(encoding="utf-8")
 
 def test_controller_infers_missing_path_for_structured_edit(tmp_path: Path, monkeypatch) -> None:
@@ -280,7 +282,7 @@ def test_controller_infers_missing_path_for_structured_edit(tmp_path: Path, monk
         CodeTaskSpec(workspace_path=repo, task_goal="Fix loss logging indentation.", verify_commands=["python -m py_compile train.py"], max_steps=4, output_dir=repo / "out")
     )
 
-    logged = (repo / "coding_agent_run" / "logs" / "action_02.json").read_text(encoding="utf-8")
+    logged = (repo / "out" / "logs" / "action_02.json").read_text(encoding="utf-8")
     assert report.status == "completed"
     assert '"path": "train.py"' in logged
     assert "Inferred missing path" in logged
@@ -325,6 +327,7 @@ def test_controller_uses_progress_extension_to_verify_after_base_budget(tmp_path
             verify_commands=["python train.py"],
             max_steps=1,
             max_extra_steps_after_progress=1,
+            output_dir=repo / "out",
         )
     )
 
