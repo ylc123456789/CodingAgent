@@ -120,6 +120,41 @@ print(report.status)
 ```
 
 
+
+### Code QA (Read-Only)
+
+Ask questions about a repository without modifying any files:
+
+```python
+from coding_agent import CodeQuestionSpec, run_code_question
+
+result = run_code_question(CodeQuestionSpec(
+    workspace_path="/path/to/repo",       # required: must exist
+    question="Where is the training loop?",   # required
+    output_dir="/path/to/artifacts",          # required
+    context_hint="Look at train.py",           # optional
+    max_steps=8,
+    model="deepseek-v4-pro",
+    api_base="https://api.deepseek.com",
+    api_key_env="DEEPSEEK_API_KEY",
+))
+
+print(result.status)         # "completed" or "failed"
+print(result.answer)         # markdown answer with file/line evidence
+print(result.evidence_files) # paths inspected during the question
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `workspace_path` | `Path` | yes | Existing repo (read-only, must exist). |
+| `question` | `str` | yes | Natural-language code question. |
+| `output_dir` | `Path` | yes | Where artifacts are written. |
+| `context_hint` | `str` | no | Hint about which files to inspect. |
+| `constraints` | `list[str]` | no | Additional hard constraints. |
+| `max_steps` | `int` | no | Step budget (default 12). |
+| `timeout_seconds` | `int` | no | Per-command timeout (default 600). |
+| `model` / `api_base` / `api_key_env` | — | no | Same as CodeTaskSpec. |
+
 ## Safety Defaults
 
 - Only files inside `workspace_path` may be edited.
