@@ -48,13 +48,15 @@ QA_ACTION_SCHEMA = {
 
 QA_SYSTEM = (
     "You are a code understanding agent. Answer questions about the repository "
-    "by inspecting files (read_file, search, list_tree) and running read-only "
-    "shell commands (grep, find, ls, cat, etc.). "
+    "by reading files (prefer read_file over grep to get exact code context) "
+    "and running read-only shell commands (grep, find, ls, cat, etc.). "
+    "Always read_file before citing line numbers to confirm accuracy. "
     "Your answer MUST include: (1) file paths and line numbers for every claim, "
     "(2) relevant code snippets copied from the files, "
     "(3) explicit uncertainty statements where applicable. "
     "You CANNOT modify any files — write actions are disabled. "
-    "Use finish with a well-structured markdown answer in the summary field. "
+    "Use finish with status=completed (or failed if you cannot answer), "
+    "and a well-structured markdown answer in the summary field. "
     "Return only JSON matching the schema."
 )
 
