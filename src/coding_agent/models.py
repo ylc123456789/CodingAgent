@@ -134,6 +134,7 @@ class CodeExplanation(BaseModel):
     evidence_files: list[str] = Field(default_factory=list)
     relevant_snippets: list[Snippet] = Field(default_factory=list)
     uncertainty: str = ""
+    produced_files: list[str] = Field(default_factory=list)
     commands_run: list[CommandResult] = Field(default_factory=list)
 
 
@@ -197,6 +198,7 @@ class ControllerAction(BaseModel):
     occurrence_index: int | None = None
     status: Literal["completed", "failed", "blocked", "needs_user_input"] | None = None
     summary: str | None = None
+    produced_files: list[str] = Field(default_factory=list)
     residual_risks: list[str] = Field(default_factory=list)
 
 
@@ -217,6 +219,7 @@ class PatchReport(BaseModel):
     diff_path: Path | None
     verification_results: list[CommandResult]
     summary: str
+    produced_files: list[str] = Field(default_factory=list)
     residual_risks: list[str] = Field(default_factory=list)
 
 

@@ -126,6 +126,7 @@ def run_code_question(spec):
         relevant_snippets=snippets,
         uncertainty=uncertainty,
         commands_run=report.verification_results,
+        produced_files=report.produced_files,
     )
 
 

@@ -77,6 +77,7 @@ def run_step_controller(spec: CodeTaskSpec) -> PatchReport:
                 state.report = report
                 write_patch_report(spec, report, output_dir)
                 write_state(state, output_dir)
+                report.produced_files = _list_output_files(output_dir)
                 return report
 
             if action.action == "ask_user":
@@ -91,6 +92,7 @@ def run_step_controller(spec: CodeTaskSpec) -> PatchReport:
                 state.report = report
                 write_patch_report(spec, report, output_dir)
                 write_state(state, output_dir)
+                report.produced_files = _list_output_files(output_dir)
                 return report
         except Exception as exc:
             final_error = str(exc)
@@ -110,11 +112,22 @@ def run_step_controller(spec: CodeTaskSpec) -> PatchReport:
             verification_results=verification_results,
             summary=f"Controller stopped before completion: {final_error or 'max_steps reached'}",
             residual_risks=[final_error] if final_error else ["max_steps reached"],
+            produced_files=_list_output_files(output_dir),
         )
     state.report = report
     write_patch_report(spec, report, output_dir)
     write_state(state, output_dir)
     return report
+
+
+
+def _list_output_files(output_dir):
+    """Return relative paths of all files written under output_dir."""
+    files = []
+    for f in sorted(output_dir.rglob("*")):
+        if f.is_file():
+            files.append(str(f.relative_to(output_dir)).replace("\\", "/"))
+    return files
 
 
 def _append_observation(existing: str, addition: str) -> str:
