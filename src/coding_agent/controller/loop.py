@@ -16,11 +16,15 @@ from ..reviewer import review_outcome
 from .actions import execute_action, _normalize_action, _run_missing_finish_verification
 from .prompts import choose_next_action
 
-def run_step_controller(spec: CodeTaskSpec) -> PatchReport:
+def run_step_controller(spec: CodeTaskSpec, resume_state: AgentState | None = None) -> PatchReport:
     """Run the controller loop until finish, failure, or budget exhaustion."""
     output_dir = prepare_output_dir(spec)
     log_dir = output_dir / "logs"
-    state = AgentState(task=spec)
+    if resume_state is not None:
+        state = resume_state
+        state.task = spec
+    else:
+        state = AgentState(task=spec)
     policy = resolve_context_policy(spec)
     context = _build_context(spec, policy)
     write_initial_diff(context.initial_diff, output_dir)
@@ -30,9 +34,11 @@ def run_step_controller(spec: CodeTaskSpec) -> PatchReport:
     verification_results = []
     final_error = ""
 
+    start_step = len(state.steps) + 1
     hard_step_limit = spec.max_steps + spec.max_extra_steps_after_progress
-    for step in range(1, hard_step_limit + 1):
-        if step > spec.max_steps and not _should_continue_past_base_limit(spec, state.steps):
+    for loop_idx in range(hard_step_limit):
+        step = start_step + loop_idx
+        if (loop_idx + 1) > spec.max_steps and not _should_continue_past_base_limit(spec, state.steps):
             final_error = "max_steps reached"
             break
         try:

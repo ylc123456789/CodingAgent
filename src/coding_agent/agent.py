@@ -103,6 +103,8 @@ def run_code_question(spec):
             "Do NOT modify any files. Read-only access only.",
         ],
         output_dir=spec.output_dir,
+        session_id=spec.session_id,
+        parent_run=spec.parent_run,
         read_only=True,
         max_steps=spec.max_steps,
         timeout_seconds=spec.timeout_seconds,
@@ -138,9 +140,9 @@ def resume_code_task(output_dir, instruction, **overrides):
     """Resume a previous coding task with a new instruction.
 
     Reads the previous state from output_dir, builds a new CodeTaskSpec
-    with the same workspace_path and an augmented task_goal that includes
-    the previous summary and the new instruction, then runs a new task.
-    Steps are appended to the existing state.json.
+    with the same workspace_path, verify_commands, allowed_paths, and
+    timeout_seconds.  The task_goal includes the previous summary plus
+    the new instruction.  New steps are appended to existing state.json.
     """
     import json
     from pathlib import Path as _Path
@@ -173,6 +175,9 @@ def resume_code_task(output_dir, instruction, **overrides):
             f"New instruction: {instruction}"
         ),
         constraints=task_data.get("constraints", []),
+        verify_commands=task_data.get("verify_commands", []),
+        allowed_paths=task_data.get("allowed_paths", []),
+        timeout_seconds=overrides.pop("timeout_seconds", task_data.get("timeout_seconds", 900)),
         output_dir=output_dir,
         session_id=card.get("session_id", _generate_session_id()),
         parent_run=card.get("parent"),
@@ -184,7 +189,27 @@ def resume_code_task(output_dir, instruction, **overrides):
         model=overrides.pop("model", task_data.get("model", "gpt-4.1")),
         **overrides,
     )
-    return run_code_task(task_spec)
+    return _run_code_task_resume(task_spec, output_dir)
+
+
+
+
+def _run_code_task_resume(spec, output_dir):
+    """Run a coding task, appending steps to existing state."""
+    import json
+    from .controller.loop import run_step_controller
+    from .models import AgentState
+
+    old_state = None
+    old_state_path = output_dir / "state.json"
+    if old_state_path.exists():
+        try:
+            data = json.loads(old_state_path.read_text())
+            old_state = AgentState.model_validate(data)
+        except Exception:
+            pass
+
+    return run_step_controller(spec, resume_state=old_state)
 
 
 def run_code_task(spec: CodeTaskSpec) -> PatchReport:
