@@ -119,6 +119,8 @@ def run_code_question(spec):
     evidence_files, snippets = _extract_evidence(spec.output_dir)
     uncertainty = _detect_uncertainty(report.summary)
 
+    from .session import write_session_card
+    write_session_card(task_spec, report, spec.output_dir, kind="qa_session")
     return CodeExplanation(
         status=report.status,
         answer=report.summary,
@@ -130,6 +132,64 @@ def run_code_question(spec):
     )
 
 
+
+
+def resume_code_task(output_dir, instruction, **overrides):
+    """Resume a previous coding task with a new instruction.
+
+    Reads the previous state from output_dir, builds a new CodeTaskSpec
+    with the same workspace_path and an augmented task_goal that includes
+    the previous summary and the new instruction, then runs a new task.
+    Steps are appended to the existing state.json.
+    """
+    import json
+    from pathlib import Path as _Path
+    from .session import read_session_card, _generate_session_id
+    from .models import CodeTaskSpec
+
+    output_dir = _Path(output_dir)
+    card = read_session_card(output_dir)
+    if not card:
+        raise ValueError(f"No session.yaml found in {output_dir}")
+
+    state_path = output_dir / "state.json"
+    if not state_path.exists():
+        raise ValueError(f"No state.json found in {output_dir}")
+
+    state = json.loads(state_path.read_text())
+    last_summary = card.get("summary", "")
+    last_report = state.get("report", {}).get("summary", "")[:500]
+
+    # Reconstruct task spec
+    task_data = state.get("task", {})
+    ws = _Path(task_data.get("workspace_path", card.get("project_path", ".")))
+
+    task_spec = CodeTaskSpec(
+        workspace_path=ws,
+        task_goal=(
+            f"Continue previous task.\n\n"
+            f"Previous summary: {last_summary}\n\n"
+            f"Previous report: {last_report}\n\n"
+            f"New instruction: {instruction}"
+        ),
+        constraints=task_data.get("constraints", []),
+        output_dir=output_dir,
+        session_id=card.get("session_id", _generate_session_id()),
+        parent_run=card.get("parent"),
+        max_steps=overrides.pop("max_steps", task_data.get("max_steps", 24)),
+        max_extra_steps_after_progress=overrides.pop("max_extra_steps_after_progress", 8),
+        patch_repair_attempts=overrides.pop("patch_repair_attempts", 2),
+        api_base=overrides.pop("api_base", task_data.get("api_base", "https://api.openai.com/v1")),
+        api_key_env=overrides.pop("api_key_env", task_data.get("api_key_env", "OPENAI_API_KEY")),
+        model=overrides.pop("model", task_data.get("model", "gpt-4.1")),
+        **overrides,
+    )
+    return run_code_task(task_spec)
+
+
 def run_code_task(spec: CodeTaskSpec) -> PatchReport:
     """Run a coding task through the step controller."""
-    return run_step_controller(spec)
+    report = run_step_controller(spec)
+    from .session import write_session_card
+    write_session_card(spec, report, spec.output_dir, kind="task_session")
+    return report

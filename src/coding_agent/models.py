@@ -29,6 +29,8 @@ class CodeTaskSpec(BaseModel):
     api_key_env: str = "OPENAI_API_KEY"
     model: str = "gpt-4.1"
     read_only: bool = False
+    session_id: str = ""
+    parent_run: dict | None = None
     output_dir: Path
 
     @field_validator("workspace_path")
@@ -101,6 +103,8 @@ class CodeQuestionSpec(BaseModel):
     constraints: list[str] = Field(default_factory=list)
     max_steps: int = 12
     timeout_seconds: int = 600
+    session_id: str = ""
+    parent_run: dict | None = None
     model: str = "gpt-4.1"
     api_base: str = "https://api.openai.com/v1"
     api_key_env: str = "OPENAI_API_KEY"
