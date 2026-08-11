@@ -214,6 +214,37 @@ Not yet a full research-design agent by itself:
 - reviewer logic is still mostly evidence/rule based
 - multi-operation structured edit batches and AST-aware edits are future work
 
+## Session API
+
+Every run writes a `session.yaml` index card into `output_dir`. Cards enable
+discovery (`list_sessions`), inspection (`session_status`), and resumption
+(`resume_code_task`) across process restarts.
+
+```python
+from coding_agent import list_sessions, session_status, resume_code_task
+
+# Discover all past sessions
+for card in list_sessions("/path/to/runs"):
+    print(card["session_id"], card["status"])
+
+# Inspect one session
+status = session_status("/path/to/output_dir")
+print(status["steps_count"], status["report_summary"])
+
+# Resume with a new instruction
+report = resume_code_task(
+    "/path/to/output_dir",
+    instruction="Add validation loss logging",
+    max_steps=12,
+)
+```
+
+| Function | Description |
+|----------|-------------|
+| `list_sessions(root)` | Scan `root` for `session.yaml` files. |
+| `session_status(output_dir)` | Read card and state.json summary. |
+| `resume_code_task(output_dir, instruction)` | Continue a task; appends steps, preserves session ID. |
+
 ## Batch Tests
 
 Real-API integration tests covering diverse ML editing patterns:
