@@ -111,5 +111,36 @@ def test_list_empty_dir(tmp_path):
     assert list_sessions(tmp_path) == []
 
 
+
+def test_resume_preserves_created_at(tmp_path):
+    """Rewriting a session card preserves the original created_at."""
+    from coding_agent.session import write_session_card, read_session_card
+    import time
+
+    class FakeSpec:
+        session_id = "test-preserve"
+        parent_run = None
+        workspace_path = tmp_path
+
+    class FakeReport:
+        status = "completed"
+        summary = "First run"
+        diff_path = None
+
+    write_session_card(FakeSpec(), FakeReport(), tmp_path)
+    card1 = read_session_card(tmp_path)
+    created1 = card1["created_at"]
+
+    time.sleep(1)
+
+    FakeReport.summary = "Second run"
+    write_session_card(FakeSpec(), FakeReport(), tmp_path)
+    card2 = read_session_card(tmp_path)
+
+    assert card2["created_at"] == created1
+    assert card2["updated_at"] != created1
+    assert card2["summary"] == "Second run"
+
+
 def test_session_status_no_card(tmp_path):
     assert "error" in session_status(tmp_path)

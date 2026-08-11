@@ -27,13 +27,17 @@ def write_session_card(spec, report, output_dir, kind="task_session"):
     sid = _resolve_session_id(spec)
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
+    # Preserve original created_at if card already exists (resume)
+    existing = read_session_card(output_dir)
+    created_at = existing["created_at"] if existing else now
+
     card = {
         "schema_version": 1,
         "session_id": sid,
         "module": "codingagent",
         "kind": kind,
         "status": report.status,
-        "created_at": now,
+        "created_at": created_at,
         "updated_at": now,
         "parent": spec.parent_run if getattr(spec, "parent_run", None) else None,
         "summary": report.summary[:300] if report.summary else "",
