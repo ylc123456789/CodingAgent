@@ -179,7 +179,7 @@ def resume_code_task(output_dir, instruction, **overrides):
         allowed_paths=task_data.get("allowed_paths", []),
         timeout_seconds=overrides.pop("timeout_seconds", task_data.get("timeout_seconds", 900)),
         output_dir=output_dir,
-        session_id=card.get("session_id", _generate_session_id()),
+        session_id=card["session_id"],
         parent_run=card.get("parent"),
         max_steps=overrides.pop("max_steps", task_data.get("max_steps", 24)),
         max_extra_steps_after_progress=overrides.pop("max_extra_steps_after_progress", 8),
@@ -209,7 +209,10 @@ def _run_code_task_resume(spec, output_dir):
         except Exception:
             pass
 
-    return run_step_controller(spec, resume_state=old_state)
+    report = run_step_controller(spec, resume_state=old_state)
+    from .session import write_session_card
+    write_session_card(spec, report, output_dir, kind="task_session")
+    return report
 
 
 def run_code_task(spec: CodeTaskSpec) -> PatchReport:
