@@ -6,24 +6,50 @@ The current version uses a step-based controller inspired by modern agentic codi
 
 ## Architecture
 
+### Directory Layout
+
 ```text
-CodeTaskSpec
-  -> Context Builder
-  -> Step Controller
-       -> list_tree
-       -> read_file
-       -> search
-       -> replace_text
-       -> insert_before / insert_after
-       -> apply_patch
-       -> write_file
-       -> run_command
-       -> finish / ask_user
-  -> Safety Layer
-  -> Reporter
+coding_agent/
+├── __init__.py          # stable public Python API
+├── agent.py             # run_code_task / run_code_question / resume_code_task
+├── models.py            # public input/output models (CodeTaskSpec, PatchReport, ...)
+├── llm.py               # OpenAI-compatible chat client with retry
+├── session.py           # session.yaml index cards: write/read/list/status
+├── report.py            # run artifacts: state, diffs, patch report
+├── reviewer.py          # evidence -> final report conversion
+├── controller/          # agentic loop, action dispatch, prompts
+│   ├── loop.py          # step loop, budget, finish gating
+│   ├── actions.py       # 11 action handlers + syntax check
+│   ├── prompts.py       # ACTION_SCHEMA, QA prompts, context compaction
+│   └── repair.py        # failed patch / structured edit repair
+├── context/             # repository context and budget policy
+│   ├── builder.py       # repo tree, snippets, initial diff
+│   └── policy.py        # model-aware context budget selection
+└── runtime/             # side-effecting operations
+    ├── runner.py        # verification command execution
+    ├── edits.py         # deterministic text edits (replace/insert)
+    ├── apply.py         # unified diff validation and application
+    └── safety.py        # path and command safety guards
 ```
 
-The workflow is not a fixed `plan -> patch -> verify` pipeline anymore. The outer contract remains stable and auditable, while the inner loop can explore:
+Legacy top-level modules (`apply.py`, `edits.py`, `runner.py`,
+`safety.py`, `context_policy.py`) remain as thin compatibility
+re-exports pointing into `runtime/` and `context/`.
+
+### Call Flow
+
+```text
+run_code_task(CodeTaskSpec) / run_code_question(CodeQuestionSpec)
+  -> controller.loop.run_step_controller
+       -> controller.prompts.choose_next_action   (LLM decides one action)
+       -> controller.actions.execute_action        (dispatches to runtime/*)
+       -> controller.repair.*                      (repair on failure)
+  -> session.write_session_card                    (session.yaml)
+  -> PatchReport / CodeExplanation
+```
+
+The workflow is not a fixed `plan -> patch -> verify` pipeline. The outer
+contract remains stable and auditable, while the inner loop can explore:
 
 ```text
 observe repo state
@@ -32,6 +58,17 @@ observe repo state
 -> record observation in state.json
 -> repeat until verified completion or a clear stop condition
 ```
+
+### Where to Add Things
+
+- **New action**: extend `ACTION_SCHEMA` in `controller/prompts.py`,
+  add a handler branch in `controller/actions.py::execute_action`,
+  add the literal to `ControllerAction.action` in `models.py`.
+- **New context source**: extend `context/builder.py::build_repo_context`.
+- **New safety rule**: extend `runtime/safety.py`.
+- **New repair strategy**: extend `controller/repair.py`.
+- **Session/workspace**: `session.yaml` in `output_dir`; workspace is
+  `CodeTaskSpec.workspace_path`.
 
 ## Install
 
