@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from ..runtime.apply import current_diff
-from ..context_policy import ContextPolicy, resolve_context_policy
+from ..context.policy import ContextPolicy, resolve_context_policy
 from ..llm import LLMClient
 from ..models import AgentState, CodeTaskSpec, ControllerAction, StepRecord
 

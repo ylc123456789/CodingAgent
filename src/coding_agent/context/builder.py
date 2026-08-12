@@ -4,8 +4,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from .models import CodeTaskSpec, FileSnippet, RepoContext
-from .safety import BLOCKED_PATH_PARTS, BLOCKED_SUFFIXES
+from ..models import CodeTaskSpec, FileSnippet, RepoContext
+from ..runtime.safety import BLOCKED_PATH_PARTS, BLOCKED_SUFFIXES
 
 TEXT_SUFFIXES = {
     ".cfg",

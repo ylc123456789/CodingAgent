@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 
 from ..runtime.apply import PatchApplyError, apply_patch_text, current_diff, extract_patch_paths, normalize_patch_text
-from ..context import TEXT_SUFFIXES, build_repo_context
-from ..context_policy import resolve_context_policy
+from ..context.builder import TEXT_SUFFIXES, build_repo_context
+from ..context.policy import resolve_context_policy
 from ..runtime.edits import StructuredEditError, find_all, insert_after_anchor, insert_before_anchor, replace_text_once
 from ..models import CodeTaskSpec, ControllerAction, StepRecord
 from ..report import write_diff
