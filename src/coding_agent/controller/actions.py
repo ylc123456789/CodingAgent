@@ -6,14 +6,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ..apply import PatchApplyError, apply_patch_text, current_diff, extract_patch_paths, normalize_patch_text
+from ..runtime.apply import PatchApplyError, apply_patch_text, current_diff, extract_patch_paths, normalize_patch_text
 from ..context import TEXT_SUFFIXES, build_repo_context
 from ..context_policy import resolve_context_policy
-from ..edits import StructuredEditError, find_all, insert_after_anchor, insert_before_anchor, replace_text_once
+from ..runtime.edits import StructuredEditError, find_all, insert_after_anchor, insert_before_anchor, replace_text_once
 from ..models import CodeTaskSpec, ControllerAction, StepRecord
 from ..report import write_diff
-from ..runner import run_verify_commands
-from ..safety import SafetyError, ensure_path_allowed
+from ..runtime.runner import run_verify_commands
+from ..runtime.safety import SafetyError, ensure_path_allowed
 from .repair import repair_patch, repair_structured_edit, _save_failed_patch, _save_structured_edit_failure
 
 def _normalize_action(spec: CodeTaskSpec, steps: list[StepRecord], action: ControllerAction) -> ControllerAction:
@@ -124,7 +124,7 @@ def execute_action(spec: CodeTaskSpec, action: ControllerAction, output_dir: Pat
         if not command:
             raise ValueError("run_command requires command")
         if getattr(spec, "read_only", False):
-            from ..safety import validate_read_only_command
+            from ..runtime.safety import validate_read_only_command
             try:
                 validate_read_only_command(command)
             except Exception as exc:

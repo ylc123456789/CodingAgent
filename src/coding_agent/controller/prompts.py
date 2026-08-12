@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ..apply import current_diff
+from ..runtime.apply import current_diff
 from ..context_policy import ContextPolicy, resolve_context_policy
 from ..llm import LLMClient
 from ..models import AgentState, CodeTaskSpec, ControllerAction, StepRecord

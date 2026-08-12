@@ -6,11 +6,11 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator
 
-from ..apply import PatchApplyError, extract_patch_paths, normalize_patch_text
-from ..edits import StructuredEditError, find_all
+from ..runtime.apply import PatchApplyError, extract_patch_paths, normalize_patch_text
+from ..runtime.edits import StructuredEditError, find_all
 from ..llm import LLMClient
 from ..models import CodeTaskSpec, ControllerAction
-from ..safety import SafetyError, ensure_path_allowed
+from ..runtime.safety import SafetyError, ensure_path_allowed
 
 class PatchRepairResponse(BaseModel):
     """Structured response returned by patch repair prompts."""

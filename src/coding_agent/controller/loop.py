@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ..apply import current_diff
+from ..runtime.apply import current_diff
 from ..context import build_repo_context
 from ..context_policy import resolve_context_policy
 from ..llm import LLMClient
