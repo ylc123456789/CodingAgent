@@ -32,6 +32,10 @@ class CodeTaskSpec(BaseModel):
     session_id: str = ""
     parent_run: dict | None = None
     output_dir: Path
+    repo_url: str = ""
+    branch: str = ""
+    env_policy: Literal["auto", "reuse_only", "frozen"] = "auto"
+    env_name: str = ""
 
     @field_validator("workspace_path")
     @classmethod
