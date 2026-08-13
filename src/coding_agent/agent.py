@@ -227,8 +227,14 @@ def _prepare_workspace(spec: CodeTaskSpec) -> None:
     The destination must be absent or empty.  A non-empty directory is
     never overwritten; it fails with a structured error instead of
     silently reusing an unexpected working tree.
+
+    Clone runs with a timeout and up to 3 attempts (2s/4s backoff).
+    Half-finished clone directories from failed attempts are removed
+    so a later retry starts clean.
     """
+    import shutil
     import subprocess
+    import time
     if not spec.repo_url:
         return
     ws = spec.workspace_path
@@ -240,11 +246,26 @@ def _prepare_workspace(spec: CodeTaskSpec) -> None:
     if spec.branch:
         command += ["--branch", spec.branch]
     command += [spec.repo_url, str(ws)]
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"git clone failed for {spec.repo_url}: {result.stderr.strip()}"
-        )
+
+    last_error = ""
+    for attempt in range(3):
+        try:
+            result = subprocess.run(
+                command, capture_output=True, text=True, check=False, timeout=300
+            )
+        except subprocess.TimeoutExpired:
+            last_error = "timed out after 300s"
+        else:
+            if result.returncode == 0:
+                return
+            last_error = result.stderr.strip()
+        if ws.exists():
+            shutil.rmtree(ws, ignore_errors=True)
+        if attempt < 2:
+            time.sleep(min(2 ** attempt * 2, 30))
+    raise RuntimeError(
+        f"git clone failed for {spec.repo_url}: {last_error or 'unknown error'}"
+    )
 
 
 def run_code_task(spec: CodeTaskSpec) -> PatchReport:
