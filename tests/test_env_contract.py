@@ -223,3 +223,50 @@ def test_session_card_bindings_isolated(tmp_path):
     assert bindings["repo"]["mode"] == "isolated"
     assert bindings["repo"]["origin"] == "https://github.com/org/repo.git"
     assert "environment" not in bindings
+
+
+# ---- C2 acceptance: clone -> edit -> verify chain (mock LLM) ----
+from coding_agent import CodeTaskSpec, run_code_task
+
+
+def test_clone_edit_verify_chain(tmp_path, monkeypatch):
+    source = _make_source_repo(tmp_path)
+    ws = tmp_path / "workspace"
+    out = tmp_path / "out"
+
+    class FakeClient:
+        """Mock LLM: edit the cloned file, then finish."""
+        actions = [
+            {
+                "action": "replace_text",
+                "reasoning": "Add loss print.",
+                "path": "train.py",
+                "old_text": "print('hello')",
+                "new_text": "print('hello')\nprint('loss 0.5')",
+            },
+            {"action": "run_command", "reasoning": "verify", "command": "python3 train.py"},
+            {"action": "finish", "status": "completed", "summary": "done"},
+        ]
+
+        def __init__(self, *args, **kwargs):
+            self.index = 0
+
+        def complete_json(self, system, user):
+            action = self.actions[self.index]
+            self.index += 1
+            return action
+
+    monkeypatch.setattr("coding_agent.controller.loop.LLMClient", FakeClient)
+
+    report = run_code_task(CodeTaskSpec(
+        workspace_path=ws,
+        output_dir=out,
+        task_goal="Add loss logging.",
+        repo_url=str(source),
+        max_steps=4,
+        verify_commands=["python3 train.py"],
+    ))
+    assert report.status == "completed"
+    assert (ws / "train.py").exists()
+    content = (ws / "train.py").read_text()
+    assert "loss 0.5" in content

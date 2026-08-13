@@ -109,6 +109,10 @@ api_key_env=DEEPSEEK_API_KEY
 |-------|------|----------|---------|-------------|
 | `workspace_path` | `Path` | **yes** | — | Working directory. Created if it does not exist. |
 | `output_dir` | `Path` | **yes** | — | Where run artifacts are written. |
+| `repo_url` | `str` | no | `""` | Clone this URL (depth 1) into `workspace_path` before running. Destination must be absent or empty. |
+| `branch` | `str` | no | `""` | Branch to clone when `repo_url` is set. |
+| `env_policy` | `str` | no | `"auto"` | Environment permission tier: `auto` / `reuse_only` / `frozen`. |
+| `env_name` | `str` | no | `""` | Conda env for verification commands; wraps via `conda run -n`. |
 | `task_goal` | `str` | **yes** | — | Natural-language task description. |
 | `model` | `str` | no | `"gpt-4.1"` | Model name. |
 | `api_base` | `str` | no | `"https://api.openai.com/v1"` | OpenAI-compatible endpoint. |
@@ -250,6 +254,18 @@ Not yet a full research-design agent by itself:
 - experiment design should still be decided by an upper-level research agent
 - reviewer logic is still mostly evidence/rule based
 - multi-operation structured edit batches and AST-aware edits are future work
+
+## Environment Policy
+
+| Policy | May create/delete envs | May install packages | Heavy frameworks |
+|--------|------------------------|---------------------|------------------|
+| `auto` (default) | yes | yes | yes |
+| `reuse_only` | no | small missing deps only | blocked (torch/tf/jax/...) |
+| `frozen` | no | no | blocked |
+
+`env_name` non-empty wraps every verification command via
+`conda run --no-capture-output -n <env> bash -c ...`.  Safety
+validation always runs on the original command before wrapping.
 
 ## Session API
 

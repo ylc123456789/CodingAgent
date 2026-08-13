@@ -9,4 +9,5 @@ description_for_router: |
 capabilities: [code_modification, code_question]
 side_effects: workspace
 input_contract: run_code_task(CodeTaskSpec) -> PatchReport; run_code_question(CodeQuestionSpec) -> CodeExplanation
+env_policy_note: CodeTaskSpec accepts env_policy auto|reuse_only|frozen and env_name; verify commands run inside env_name via conda run. auto may create envs; reuse_only may install small deps only; frozen forbids any environment mutation.
 status: available
