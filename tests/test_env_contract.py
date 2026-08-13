@@ -76,3 +76,63 @@ def test_clone_failure_raises(tmp_path):
     )
     with pytest.raises(RuntimeError, match="git clone failed"):
         _prepare_workspace(spec)
+
+
+# ---- C3: env policy + conda wrap ----
+from coding_agent.runtime.runner import _conda_executable, _wrap_conda, run_verify_commands
+from coding_agent.runtime.safety import validate_env_command
+from coding_agent.runtime.safety import SafetyError
+
+
+def test_env_policy_auto_allows_everything():
+    validate_env_command("pip install torch", "auto")
+    validate_env_command("conda create -n x python", "auto")
+
+
+def test_env_policy_frozen_blocks_all_mutation():
+    with pytest.raises(SafetyError, match="frozen"):
+        validate_env_command("pip install torch", "frozen")
+    with pytest.raises(SafetyError, match="frozen"):
+        validate_env_command("conda create -n x python", "frozen")
+    validate_env_command("python train.py", "frozen")
+    validate_env_command("grep loss train.py", "frozen")
+
+
+def test_env_policy_reuse_only_blocks_heavy_and_env_ops():
+    with pytest.raises(SafetyError, match="heavy framework"):
+        validate_env_command("pip install torch", "reuse_only")
+    with pytest.raises(SafetyError, match="heavy framework"):
+        validate_env_command("conda install tensorflow", "reuse_only")
+    with pytest.raises(SafetyError, match="reuse_only"):
+        validate_env_command("conda create -n x python", "reuse_only")
+    # small packages still allowed
+    validate_env_command("pip install requests", "reuse_only")
+    validate_env_command("python train.py", "reuse_only")
+
+
+def test_conda_wrap_form(monkeypatch):
+    monkeypatch.setattr(
+        "coding_agent.runtime.runner._conda_executable",
+        lambda: "/fake/conda",
+    )
+    wrapped = _wrap_conda("python train.py", "myenv")
+    assert "conda" in wrapped
+    assert "run" in wrapped
+    assert "-n myenv" in wrapped
+    assert "python train.py" in wrapped
+
+
+def test_safety_runs_before_wrap(monkeypatch):
+    """Dangerous command is rejected even when env_name would wrap it."""
+    monkeypatch.setattr(
+        "coding_agent.runtime.runner._conda_executable",
+        lambda: "/fake/conda",
+    )
+    with pytest.raises(SafetyError):
+        run_verify_commands(
+            Path("/tmp"),
+            ["rm -rf /"],
+            Path("/tmp/logs"),
+            30,
+            env_name="myenv",
+        )

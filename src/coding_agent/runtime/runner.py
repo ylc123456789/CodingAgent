@@ -1,12 +1,57 @@
 """Run verification commands and capture their logs."""
 from __future__ import annotations
 
+import os
+import shlex
+import shutil
 import subprocess
 import time
 from pathlib import Path
 
 from ..models import CommandResult
-from .safety import validate_command
+from .safety import validate_command, validate_env_command
+
+
+
+
+def _conda_executable() -> str | None:
+    """Locate the conda executable from env, PATH, or common locations."""
+    candidates: list[str] = []
+    for var in ("CONDA_EXE", "MAMBA_EXE", "MICROMAMBA_EXE"):
+        value = os.environ.get(var)
+        if value and Path(value).is_file():
+            candidates.append(value)
+    found = shutil.which("conda")
+    if found:
+        candidates.append(found)
+    for candidate in (
+        Path.home() / "miniconda3" / "bin" / "conda",
+        Path.home() / "anaconda3" / "bin" / "conda",
+        Path.home() / "miniforge3" / "bin" / "conda",
+        Path("/opt/conda/bin/conda"),
+        Path("/usr/local/miniconda3/bin/conda"),
+        Path("/root/miniconda3/bin/conda"),
+        Path("/root/anaconda3/bin/conda"),
+    ):
+        if candidate.is_file():
+            candidates.append(str(candidate))
+    for candidate in candidates:
+        if Path(candidate).is_file():
+            return candidate
+    return None
+
+
+def _wrap_conda(command: str, env_name: str) -> str:
+    """Wrap a shell command to run inside a conda environment."""
+    conda = _conda_executable()
+    if not conda:
+        raise RuntimeError(
+            f"env_name={env_name!r} specified but no conda executable found"
+        )
+    return (
+        f"{shlex.quote(conda)} run --no-capture-output -n "
+        f"{shlex.quote(env_name)} bash -c {shlex.quote(command)}"
+    )
 
 
 def run_verify_commands(
@@ -14,19 +59,29 @@ def run_verify_commands(
     commands: list[str],
     log_dir: Path,
     timeout_seconds: int,
+    env_name: str = "",
+    env_policy: str = "auto",
 ) -> list[CommandResult]:
-    """Run verification commands with captured logs."""
+    """Run verification commands with captured logs.
+
+    Safety validation runs on the original command before any conda
+    wrapper is added.  env_name non-empty wraps execution via
+    conda run -n <env_name>.  env_policy constrains environment
+    mutation attempts (see validate_env_command).
+    """
     log_dir.mkdir(parents=True, exist_ok=True)
     results: list[CommandResult] = []
     for index, command in enumerate(commands, start=1):
         validate_command(command)
+        validate_env_command(command, env_policy)
+        run_command = _wrap_conda(command, env_name) if env_name else command
         stdout_path = log_dir / f"verify_{index:02d}.stdout"
         stderr_path = log_dir / f"verify_{index:02d}.stderr"
         start = time.monotonic()
         timed_out = False
         try:
             completed = subprocess.run(
-                command,
+                run_command,
                 cwd=repo_root,
                 shell=True,
                 text=True,

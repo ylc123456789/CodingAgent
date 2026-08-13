@@ -93,6 +93,52 @@ def validate_read_only_command(command: str) -> None:
         )
 
 
+
+
+HEAVY_FRAMEWORKS = (
+    "torch", "tensorflow", "jax", "paddlepaddle", "mxnet",
+)
+
+_ENV_CREATE_MARKERS = ("conda create", "conda env create")
+_ENV_REMOVE_MARKERS = ("conda remove", "conda env remove", "conda env remove -n")
+_PKG_MUTATION_MARKERS = (
+    "pip install", "pip uninstall", "pip3 install", "pip3 uninstall",
+    "conda install", "conda uninstall", "conda update", "conda upgrade",
+)
+
+
+def validate_env_command(command: str, env_policy: str) -> None:
+    """Enforce env_policy constraints on a shell command.
+
+    auto: no restriction.  reuse_only: may install small missing
+    packages but must not touch heavy frameworks or create/remove
+    environments.  frozen: no environment or package mutation at all.
+    """
+    if not env_policy or env_policy == "auto":
+        return
+    lowered = command.lower()
+    creates_env = any(marker in lowered for marker in _ENV_CREATE_MARKERS)
+    removes_env = any(marker in lowered for marker in _ENV_REMOVE_MARKERS)
+    mutates_pkg = any(marker in lowered for marker in _PKG_MUTATION_MARKERS)
+
+    if env_policy == "frozen":
+        if creates_env or removes_env or mutates_pkg:
+            raise SafetyError(
+                f"environment is frozen; command attempts env/package mutation: {command}"
+            )
+        return
+
+    # reuse_only
+    if creates_env or removes_env:
+        raise SafetyError(
+            f"reuse_only forbids creating/removing environments: {command}"
+        )
+    if mutates_pkg and any(fw in lowered for fw in HEAVY_FRAMEWORKS):
+        raise SafetyError(
+            f"reuse_only forbids heavy framework changes ({', '.join(HEAVY_FRAMEWORKS)}): {command}"
+        )
+
+
 def validate_command(command: str) -> None:
     """Reject dangerous shell commands."""
     lowered = command.lower()
