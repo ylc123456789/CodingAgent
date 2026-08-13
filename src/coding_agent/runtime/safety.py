@@ -93,50 +93,123 @@ def validate_read_only_command(command: str) -> None:
         )
 
 
-
-
 HEAVY_FRAMEWORKS = (
     "torch", "tensorflow", "jax", "paddlepaddle", "mxnet",
 )
 
-_ENV_CREATE_MARKERS = ("conda create", "conda env create")
-_ENV_REMOVE_MARKERS = ("conda remove", "conda env remove", "conda env remove -n")
-_PKG_MUTATION_MARKERS = (
-    "pip install", "pip uninstall", "pip3 install", "pip3 uninstall",
-    "conda install", "conda uninstall", "conda update", "conda upgrade",
-)
+_SHELL_OPERATORS = ("&&", "||", ";", "|")
+
+_INSTALL_SUBCOMMANDS = ("install",)
+_UNINSTALL_SUBCOMMANDS = ("uninstall", "remove")
+_UPGRADE_SUBCOMMANDS = ("update", "upgrade")
+_PKG_SUBCOMMANDS = _INSTALL_SUBCOMMANDS + _UNINSTALL_SUBCOMMANDS + _UPGRADE_SUBCOMMANDS
+_ENV_SUBCOMMANDS = ("create", "remove", "update")
+
+
+def _command_mutation(command: str):
+    """Classify a shell command's environment impact.
+
+    Returns ("env", manager, subcommand) for env create/remove,
+    ("pkg", manager, subcommand) for package install/uninstall/update,
+    ("unparseable", "", "") when tokenization fails, and
+    (None, "", "") when the command does not mutate anything.
+
+    Segments are split on shell operators so compound commands like
+    `python train.py && pip install x` are checked per segment.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return "unparseable", "", ""
+    segments = [[]]
+    for token in tokens:
+        if token in _SHELL_OPERATORS:
+            segments.append([])
+        else:
+            segments[-1].append(token)
+
+    for segment in segments:
+        if not segment:
+            continue
+        argv0 = segment[0].split("/")[-1].lower()
+
+        # python -m pip install X  /  python -m uv pip install X
+        if argv0 in ("python", "python3") and len(segment) >= 4 and segment[1] == "-m":
+            manager = segment[2].lower()
+            sub = segment[3].lower()
+            if manager in ("pip", "pip3", "uv") and sub in _PKG_SUBCOMMANDS:
+                return "pkg", manager, sub
+            continue
+
+        # uv pip install / uv venv
+        if argv0 == "uv":
+            if len(segment) >= 2 and segment[1].lower() == "venv":
+                return "env", "uv", "venv"
+            if len(segment) >= 3 and segment[1].lower() == "pip" and segment[2].lower() in _PKG_SUBCOMMANDS:
+                return "pkg", "uv", segment[2].lower()
+            continue
+
+        # pip / pip3 / pip3.x
+        if argv0 in ("pip", "pip3") or argv0.startswith("pip3") or argv0.startswith("pip2"):
+            if len(segment) >= 2 and segment[1].lower() in _PKG_SUBCOMMANDS:
+                return "pkg", argv0, segment[1].lower()
+            continue
+
+        # conda / mamba / micromamba
+        if argv0 in ("conda", "mamba", "micromamba"):
+            if len(segment) < 2:
+                continue
+            sub = segment[1].lower()
+            if sub == "create":
+                return "env", argv0, sub
+            if sub in _PKG_SUBCOMMANDS:
+                # conda remove -n <env> removes an environment; treat
+                # remove-with-name as env-level to stay conservative
+                if sub in _UNINSTALL_SUBCOMMANDS and "-n" in [s.lower() for s in segment]:
+                    return "env", argv0, sub
+                return "pkg", argv0, sub
+            if sub == "env" and len(segment) >= 3 and segment[2].lower() in _ENV_SUBCOMMANDS:
+                return "env", argv0, segment[2].lower()
+            continue
+
+    return None, "", ""
 
 
 def validate_env_command(command: str, env_policy: str) -> None:
     """Enforce env_policy constraints on a shell command.
 
     auto: no restriction.  reuse_only: may install small missing
-    packages but must not touch heavy frameworks or create/remove
-    environments.  frozen: no environment or package mutation at all.
+    packages but must not touch heavy frameworks, uninstall/upgrade
+    anything, or create/remove environments.  frozen: no environment
+    or package mutation at all; commands that cannot be parsed are
+    conservatively rejected.
     """
     if not env_policy or env_policy == "auto":
         return
+    category, manager, subcommand = _command_mutation(command)
     lowered = command.lower()
-    creates_env = any(marker in lowered for marker in _ENV_CREATE_MARKERS)
-    removes_env = any(marker in lowered for marker in _ENV_REMOVE_MARKERS)
-    mutates_pkg = any(marker in lowered for marker in _PKG_MUTATION_MARKERS)
 
     if env_policy == "frozen":
-        if creates_env or removes_env or mutates_pkg:
+        if category is not None:
             raise SafetyError(
                 f"environment is frozen; command attempts env/package mutation: {command}"
             )
         return
 
     # reuse_only
-    if creates_env or removes_env:
+    if category == "env":
         raise SafetyError(
             f"reuse_only forbids creating/removing environments: {command}"
         )
-    if mutates_pkg and any(fw in lowered for fw in HEAVY_FRAMEWORKS):
-        raise SafetyError(
-            f"reuse_only forbids heavy framework changes ({', '.join(HEAVY_FRAMEWORKS)}): {command}"
-        )
+    if category == "pkg":
+        if any(fw in lowered for fw in HEAVY_FRAMEWORKS):
+            raise SafetyError(
+                f"reuse_only forbids heavy framework changes ({', '.join(HEAVY_FRAMEWORKS)}): {command}"
+            )
+        if subcommand not in _INSTALL_SUBCOMMANDS:
+            raise SafetyError(
+                f"reuse_only only allows installing small missing packages: {command}"
+            )
 
 
 def validate_command(command: str) -> None:

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class CodeTaskSpec(BaseModel):
@@ -36,6 +36,15 @@ class CodeTaskSpec(BaseModel):
     branch: str = ""
     env_policy: Literal["auto", "reuse_only", "frozen"] = "auto"
     env_name: str = ""
+
+    @model_validator(mode="after")
+    def _restricted_policy_requires_env(self):
+        """reuse_only and frozen policies must name an environment."""
+        if self.env_policy in ("reuse_only", "frozen") and not self.env_name:
+            raise ValueError(
+                f"env_policy={self.env_policy!r} requires a non-empty env_name"
+            )
+        return self
 
     @field_validator("workspace_path")
     @classmethod
