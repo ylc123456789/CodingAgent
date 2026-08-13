@@ -215,8 +215,37 @@ def _run_code_task_resume(spec, output_dir):
     return report
 
 
+
+
+def _prepare_workspace(spec: CodeTaskSpec) -> None:
+    """Materialize repo_url into workspace_path before running.
+
+    The destination must be absent or empty.  A non-empty directory is
+    never overwritten; it fails with a structured error instead of
+    silently reusing an unexpected working tree.
+    """
+    import subprocess
+    if not spec.repo_url:
+        return
+    ws = spec.workspace_path
+    if ws.exists() and any(ws.iterdir()):
+        raise RuntimeError(
+            f"workspace_path is not empty; refusing to clone {spec.repo_url} into {ws}"
+        )
+    command = ["git", "clone", "--depth", "1"]
+    if spec.branch:
+        command += ["--branch", spec.branch]
+    command += [spec.repo_url, str(ws)]
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"git clone failed for {spec.repo_url}: {result.stderr.strip()}"
+        )
+
+
 def run_code_task(spec: CodeTaskSpec) -> PatchReport:
     """Run a coding task through the step controller."""
+    _prepare_workspace(spec)
     report = run_step_controller(spec)
     from .session import write_session_card
     write_session_card(spec, report, spec.output_dir, kind="task_session")
