@@ -136,3 +136,90 @@ def test_safety_runs_before_wrap(monkeypatch):
             30,
             env_name="myenv",
         )
+
+
+# ---- C4: prompt guidance ----
+from coding_agent.controller.prompts import _env_policy_guidance
+
+
+class FakeSpec:
+    env_policy = "auto"
+    env_name = ""
+
+
+def test_env_guidance_auto():
+    s = FakeSpec()
+    text = _env_policy_guidance(s)
+    assert "auto" in text
+    assert "create" in text.lower()
+
+
+def test_env_guidance_reuse_only():
+    s = FakeSpec()
+    s.env_policy = "reuse_only"
+    s.env_name = "resenv_x"
+    text = _env_policy_guidance(s)
+    assert "resenv_x" in text
+    assert "heavy" in text.lower()
+
+
+def test_env_guidance_frozen():
+    s = FakeSpec()
+    s.env_policy = "frozen"
+    s.env_name = "resenv_x"
+    text = _env_policy_guidance(s)
+    assert "frozen" in text
+    assert "MUST NOT" in text
+
+
+# ---- C6: session card bindings ----
+from coding_agent.session import write_session_card, read_session_card
+
+
+def test_session_card_bindings(tmp_path):
+    class Spec:
+        workspace_path = tmp_path
+        session_id = "code-test-1"
+        parent_run = None
+        repo_url = ""
+        branch = ""
+        env_policy = "reuse_only"
+        env_name = "resenv_x"
+
+    class Report:
+        status = "completed"
+        summary = "done"
+        diff_path = None
+
+    write_session_card(Spec(), Report(), tmp_path)
+    card = read_session_card(tmp_path)
+    assert "bindings" in card
+    bindings = card["bindings"]
+    assert bindings["repo"]["mode"] == "shared"
+    assert bindings["repo"]["path"] == str(tmp_path)
+    assert bindings["environment"]["name"] == "resenv_x"
+    assert bindings["environment"]["policy"] == "reuse_only"
+    assert bindings["environment"]["certification"] == "verification"
+
+
+def test_session_card_bindings_isolated(tmp_path):
+    class Spec:
+        workspace_path = tmp_path
+        session_id = "code-test-2"
+        parent_run = None
+        repo_url = "https://github.com/org/repo.git"
+        branch = ""
+        env_policy = "auto"
+        env_name = ""
+
+    class Report:
+        status = "completed"
+        summary = "done"
+        diff_path = None
+
+    write_session_card(Spec(), Report(), tmp_path)
+    card = read_session_card(tmp_path)
+    bindings = card["bindings"]
+    assert bindings["repo"]["mode"] == "isolated"
+    assert bindings["repo"]["origin"] == "https://github.com/org/repo.git"
+    assert "environment" not in bindings

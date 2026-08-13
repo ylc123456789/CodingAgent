@@ -60,6 +60,31 @@ QA_SYSTEM = (
     "Return only JSON matching the schema."
 )
 
+
+
+def _env_policy_guidance(spec) -> str:
+    """Render environment policy instructions for the prompt."""
+    policy = getattr(spec, "env_policy", "auto")
+    env_name = getattr(spec, "env_name", "")
+    if policy == "reuse_only":
+        return (
+            f"Environment policy: reuse_only. Run verification inside the existing "
+            f"environment {env_name!r}. You may install small missing packages, but MUST NOT "
+            f"install, upgrade, or remove heavy frameworks (torch, tensorflow, jax, ...) and "
+            f"MUST NOT create or delete environments."
+        )
+    if policy == "frozen":
+        return (
+            f"Environment policy: frozen. Run verification inside the existing environment "
+            f"{env_name!r}. You MUST NOT modify the environment or install anything. If a "
+            f"dependency is missing, report it honestly in your summary and residual_risks."
+        )
+    return (
+        "Environment policy: auto. You may create conda environments, install packages, "
+        "and configure dependencies as needed for verification."
+    )
+
+
 def choose_next_action(spec: CodeTaskSpec, state: AgentState, context, client: LLMClient) -> ControllerAction:
     """Ask the model to choose the next controller action."""
     policy = resolve_context_policy(spec)
@@ -83,6 +108,7 @@ def choose_next_action(spec: CodeTaskSpec, state: AgentState, context, client: L
         "task_goal": spec.task_goal,
         "constraints": spec.constraints,
         "verify_commands": spec.verify_commands,
+        "env_guidance": _env_policy_guidance(spec),
         "allowed_paths": spec.allowed_paths,
         "context_budget": {
             "context_window_tokens": policy.context_window_tokens,

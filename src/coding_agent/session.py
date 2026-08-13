@@ -9,6 +9,22 @@ def _generate_session_id(prefix="code"):
     return f"{prefix}-{ts}-{short}"
 
 
+
+
+def _git_info(workspace):
+    """Return (origin_url, commit) for a git repository, or empty strings."""
+    import subprocess
+
+    def run(args):
+        result = subprocess.run(
+            ["git", "-C", str(workspace), *args],
+            capture_output=True, text=True, check=False,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    return run(["config", "--get", "remote.origin.url"]), run(["rev-parse", "HEAD"])
+
+
 def _resolve_session_id(spec):
     """Return spec.session_id if set, otherwise generate one."""
     sid = getattr(spec, "session_id", "")
@@ -60,6 +76,27 @@ def write_session_card(spec, report, output_dir, kind="task_session"):
     # Workspace path for resume
     if hasattr(spec, "workspace_path"):
         card["project_path"] = str(spec.workspace_path)
+
+    # Session bindings (additive schema, see EXECUTION_CONTRACT_V1)
+    if hasattr(spec, "workspace_path") and spec.workspace_path:
+        origin, commit = _git_info(spec.workspace_path)
+        repo_binding = {
+            "path": str(spec.workspace_path),
+            "origin": getattr(spec, "repo_url", "") or origin or "local",
+            "commit": commit,
+            "mode": "isolated" if getattr(spec, "repo_url", "") else "shared",
+        }
+        bindings: dict = {"repo": repo_binding}
+        if getattr(spec, "env_name", ""):
+            bindings["environment"] = {
+                "name": spec.env_name,
+                "policy": getattr(spec, "env_policy", "auto"),
+                "fingerprint": "",
+                "certification": "verification",
+                "certified_at": "",
+                "audit_artifact": "",
+            }
+        card["bindings"] = bindings
 
     with open(output_dir / "session.yaml", "w") as f:
         yaml.dump(card, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
