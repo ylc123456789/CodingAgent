@@ -1,13 +1,19 @@
 name: codingagent
 role: coding_agent
 description_for_router: |
-  程序员。两个能力：
-  1) code_modification：repo 级代码修改（补日志、修 bug、加配置、API 兼容修复），
-     需要明确的 task_goal 和 verify_commands。
-  2) code_question：只读代码问答（训练入口在哪、loss 怎么算、报错定位），
-     回答附文件/行号证据，不修改任何文件。
-capabilities: [code_modification, code_question]
+  通用编程 agent，负责修改代码并验证补丁。
+  擅长：repo 级代码修改（补日志、修 bug、加配置、API 兼容修复）、
+  从空目录或 clone 起步的新项目开发。
+  不擅长：解释实验结果是否支持假设（那是 ExpAgent 的 analyze_results）。
+  另外提供只读代码问答能力（训练入口在哪、loss 怎么算、报错定位），
+  由 ResAgent 内置 codingagent_qa 名片路由，本卡不声明该能力。
+capabilities:
+  - modify_code
 side_effects: workspace
-input_contract: run_code_task(CodeTaskSpec) -> PatchReport; run_code_question(CodeQuestionSpec) -> CodeExplanation
-env_policy_note: CodeTaskSpec accepts env_policy auto|reuse_only|frozen and env_name; verify commands run inside env_name via conda run. auto may create envs; reuse_only may install small deps only; frozen forbids any environment mutation.
+input_contract: run_code_task(CodeTaskSpec) -> PatchReport
+output_contract: PatchReport
 status: available
+env_policy_note: |
+  CodeTaskSpec 接受 env_policy auto|reuse_only|frozen 与 env_name；
+  verify 命令经 conda run -n <env_name> 执行。
+  auto 可建环境；reuse_only 仅可装缺失小依赖；frozen 禁止任何环境改动。

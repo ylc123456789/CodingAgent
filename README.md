@@ -255,6 +255,17 @@ Not yet a full research-design agent by itself:
 - reviewer logic is still mostly evidence/rule based
 - multi-operation structured edit batches and AST-aware edits are future work
 
+## Capability Card
+
+`agent.yaml` at the repository root is the single cross-module contract
+card. It declares the `modify_code` capability (V2 vocabulary) with
+`side_effects: workspace`, the input/output contract
+(`run_code_task(CodeTaskSpec) -> PatchReport`), and router-facing
+descriptions. ResAgent loads it through its unified registry.
+
+Read-only code questions are a separate capability (`codingagent_qa`)
+registered by ResAgent built-ins, not by this card.
+
 ## Environment Policy
 
 | Policy | May create/delete envs | May install packages | Heavy frameworks |
