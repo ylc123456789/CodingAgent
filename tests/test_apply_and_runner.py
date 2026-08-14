@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.apply import PatchApplyError, apply_patch_text, current_diff
-from coding_agent.edits import StructuredEditError, insert_after_anchor, insert_before_anchor, replace_text_once
-from coding_agent.runner import run_verify_commands
+from coding_agent.runtime.apply import PatchApplyError, apply_patch_text, current_diff
+from coding_agent.runtime.edits import StructuredEditError, insert_after_anchor, insert_before_anchor, replace_text_once
+from coding_agent.runtime.runner import run_verify_commands
 
 
 def test_apply_patch_text_and_current_diff(tmp_path: Path) -> None:

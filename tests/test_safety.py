@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.safety import SafetyError, ensure_path_allowed, validate_command
+from coding_agent.runtime.safety import SafetyError, ensure_path_allowed, validate_command
 
 
 def test_path_must_stay_inside_repo(tmp_path: Path) -> None:

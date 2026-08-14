@@ -1,7 +1,7 @@
 """Test model-aware context budget selection."""
 from pathlib import Path
 
-from coding_agent.context_policy import resolve_context_policy
+from coding_agent.context.policy import resolve_context_policy
 from coding_agent.controller.actions import execute_action
 from coding_agent.models import CodeTaskSpec, ControllerAction
 
