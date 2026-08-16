@@ -81,3 +81,89 @@ def project_slug(project: str) -> str:
 def env_id(project: str, fingerprint: str) -> str:
     """Content-addressed environment id: resenv_<slug>_<fp[:12]>."""
     return f"resenv_{project_slug(project)}_{fingerprint[:12]}"
+
+
+
+# ── ENVIRONMENT_MANIFEST_V1 lifecycle ─────────────────────────────────────
+
+MANIFEST_REQUIRED = {
+    "schema", "env_id", "state", "certification", "spec_fingerprint",
+    "prefix", "manager", "created_by", "created_at", "updated_at", "pinned",
+}
+
+MANIFEST_STATES = {"creating", "ready", "drifted", "failed"}
+CERTIFICATION_LEVELS = {"none", "verification", "experiment"}
+
+
+def validate_manifest(manifest: dict) -> None:
+    """Structurally validate an ENVIRONMENT_MANIFEST_V1 document.
+
+    Raises ValueError on missing required fields, unknown state or
+    certification values, or wrong env_id shape.  Callers must not
+    trust manifests that fail this check.
+    """
+    missing = MANIFEST_REQUIRED - set(manifest)
+    if missing:
+        raise ValueError(f"manifest missing required fields: {sorted(missing)}")
+    if manifest["schema"] != "ENVIRONMENT_MANIFEST_V1":
+        raise ValueError(f"unknown manifest schema: {manifest['schema']}")
+    if manifest["state"] not in MANIFEST_STATES:
+        raise ValueError(f"unknown manifest state: {manifest['state']}")
+    if manifest["certification"] not in CERTIFICATION_LEVELS:
+        raise ValueError(f"unknown certification: {manifest['certification']}")
+    if not re.fullmatch(r"resenv_[a-z0-9-]+_[0-9a-f]{12}", manifest["env_id"]):
+        raise ValueError(f"invalid env_id: {manifest['env_id']}")
+    if not re.fullmatch(r"[0-9a-f]{64}", manifest["spec_fingerprint"]):
+        raise ValueError("invalid spec_fingerprint")
+    if manifest["state"] != "creating" and manifest["resolved_fingerprint"] is not None:
+        if not re.fullmatch(r"[0-9a-f]{64}", manifest["resolved_fingerprint"]):
+            raise ValueError("invalid resolved_fingerprint")
+
+
+def manifest_path(resource_root: Path, env_id_value: str) -> Path:
+    """Return the manifest file path for an environment id."""
+    return Path(resource_root) / "environments" / env_id_value / "manifest.json"
+
+
+def read_manifest(resource_root: Path, env_id_value: str) -> dict | None:
+    """Read and validate a manifest; return None when absent."""
+    path = manifest_path(resource_root, env_id_value)
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    validate_manifest(data)
+    return data
+
+
+def write_manifest_atomic(resource_root: Path, manifest: dict) -> Path:
+    """Write a manifest via tmp file + rename (atomic publication)."""
+    validate_manifest(manifest)
+    path = manifest_path(resource_root, manifest["env_id"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(
+        canonical_dumps(manifest), encoding="utf-8"
+    )
+    tmp.replace(path)
+    return path
+
+
+def transition_manifest(manifest: dict, new_state: str) -> dict:
+    """Apply a legal manifest state transition.
+
+    creating -> ready | failed; ready -> drifted | failed.
+    Anything else raises ValueError.  `updated_at` is refreshed.
+    """
+    import datetime
+    legal = {
+        "creating": {"ready", "failed"},
+        "ready": {"drifted", "failed"},
+        "drifted": set(),
+        "failed": set(),
+    }
+    current = manifest["state"]
+    if new_state not in legal.get(current, set()):
+        raise ValueError(f"illegal manifest transition: {current} -> {new_state}")
+    manifest["state"] = new_state
+    manifest["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    return manifest
