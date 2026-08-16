@@ -870,3 +870,41 @@ def prune_environments(
                 "dry_run": dry_run,
             })
     return candidates
+
+
+def delete_environment(resource_root: Path, env_id: str) -> dict:
+    """Physically delete this module's env (prefix + manifest dir).
+
+    M2-P4 apply path. The caller (ResAgent cleanup) owns policy; this
+    function owns only identity and containment guards. Never raises.
+    """
+    import shutil
+
+    root = Path(resource_root)
+    manifest_file = root / "environments" / env_id / "manifest.json"
+    try:
+        manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"env_id": env_id, "deleted": False, "reason": "manifest_missing"}
+    if manifest.get("manager") != "codingagent":
+        return {"env_id": env_id, "deleted": False,
+                "reason": f"not_managed_by_codingagent:{manifest.get('manager', '')}"}
+
+    prefix_text = str(manifest.get("prefix", "") or "")
+    envs_root = (root / "conda-envs").resolve()
+    if prefix_text:
+        resolved = Path(prefix_text).resolve()
+        if resolved != envs_root and envs_root not in resolved.parents:
+            # Containment guard: never delete outside the managed envs dir.
+            return {"env_id": env_id, "deleted": False,
+                    "reason": "prefix_outside_resource_root"}
+
+    try:
+        if prefix_text and Path(prefix_text).is_dir():
+            shutil.rmtree(prefix_text)
+        env_dir = root / "environments" / env_id
+        if env_dir.is_dir():
+            shutil.rmtree(env_dir)
+    except OSError as exc:
+        return {"env_id": env_id, "deleted": False, "reason": f"os_error:{exc}"}
+    return {"env_id": env_id, "deleted": True, "reason": ""}

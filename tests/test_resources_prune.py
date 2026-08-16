@@ -95,3 +95,38 @@ def test_prune_reports_dry_run_flag(tmp_path):
     _write_manifest(root, "resenv_x_000000000000", last_used_at="2020-01-01T00:00:00Z")
     candidates = prune_environments(root, min_unused_days=30)
     assert candidates[0]["dry_run"] is True
+
+
+def test_delete_environment_guards_and_apply(tmp_path):
+    from coding_agent.resources import delete_environment
+
+    root = tmp_path / "resources"
+    env_id = "resenv_x_000000000000"
+    _write_manifest(root, env_id)
+    prefix = root / "conda-envs" / env_id
+    prefix.mkdir(parents=True)
+    (prefix / "marker.txt").write_text("x")
+
+    # wrong manager refused
+    other = "resenv_y_000000000000"
+    _write_manifest(root, other, manager="reproagent")
+    refused = delete_environment(root, other)
+    assert refused["deleted"] is False and "not_managed" in refused["reason"]
+
+    # containment: outside prefix never deleted, manifest kept
+    out = "resenv_z_000000000000"
+    _write_manifest(root, out)
+    manifest_file = root / "environments" / out / "manifest.json"
+    data = json.loads(manifest_file.read_text())
+    data["prefix"] = str(tmp_path / "outside-env")
+    manifest_file.write_text(json.dumps(data))
+    refused = delete_environment(root, out)
+    assert refused["deleted"] is False
+    assert refused["reason"] == "prefix_outside_resource_root"
+    assert manifest_file.exists()
+
+    # happy path
+    result = delete_environment(root, env_id)
+    assert result["deleted"] is True
+    assert not prefix.exists()
+    assert not (root / "environments" / env_id).exists()
