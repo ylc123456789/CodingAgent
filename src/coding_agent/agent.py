@@ -295,7 +295,12 @@ def _prepare_environment(spec: CodeTaskSpec) -> dict | None:
     )
 
     root = _Path(spec.resource_root)
-    spec_doc = collect_environment_spec(spec.workspace_path)
+    spec_doc = collect_environment_spec(
+        spec.workspace_path,
+        requires_gpu=getattr(spec, "requires_gpu", False),
+        accelerator_variant=getattr(spec, "accelerator_variant", ""),
+        pip_index_profile=getattr(spec, "pip_index_profile", ""),
+    )
     if spec.repo_url:
         project = spec.repo_url.rstrip("/").split("/")[-1].replace(".git", "")
     else:
@@ -308,7 +313,8 @@ def _prepare_environment(spec: CodeTaskSpec) -> dict | None:
 
     if spec.env_policy == "auto" and not spec.env_name:
         manifest = create_or_reuse_environment(
-            root, spec_doc, project, spec.workspace_path, creator
+            root, spec_doc, project, spec.workspace_path, creator,
+            repo_origin=spec.repo_url,
         )
         spec.env_name = manifest["prefix"]
         return {

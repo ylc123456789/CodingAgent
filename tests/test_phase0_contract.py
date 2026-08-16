@@ -43,6 +43,7 @@ def test_public_model_field_contracts() -> None:
         "context_output_reserve_tokens", "api_base", "api_key_env", "model",
         "read_only", "session_id", "parent_run", "output_dir",
         "repo_url", "branch", "env_policy", "env_name", "resource_root",
+        "requires_gpu", "accelerator_variant", "pip_index_profile",
     ]
     assert list(CodeQuestionSpec.model_fields) == [
         "workspace_path", "question", "output_dir", "context_hint", "constraints",

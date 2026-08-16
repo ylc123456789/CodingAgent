@@ -37,6 +37,9 @@ class CodeTaskSpec(BaseModel):
     env_policy: Literal["auto", "reuse_only", "frozen"] = "auto"
     env_name: str = ""
     resource_root: str = ""
+    requires_gpu: bool = False
+    accelerator_variant: str = ""
+    pip_index_profile: str = ""
 
     @model_validator(mode="after")
     def _restricted_policy_requires_env(self):

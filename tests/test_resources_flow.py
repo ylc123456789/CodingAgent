@@ -257,6 +257,32 @@ def test_bind_clean_env_ok(tmp_path, monkeypatch):
     assert result["env_id"] == manifest["env_id"]
 
 
+def test_manifest_provenance_fields_filled(tmp_path, monkeypatch):
+    import subprocess
+    _patch_env(monkeypatch)
+    monkeypatch.setattr(
+        "coding_agent.resources.run_verification_audit", _pass_audit
+    )
+    ws = tmp_path / "repo"
+    ws.mkdir()
+    (ws / "train.py").write_text("print(1)\n")
+    subprocess.run(["git", "init"], cwd=ws, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=ws, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=ws, capture_output=True)
+    subprocess.run(["git", "add", "train.py"], cwd=ws, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=ws, capture_output=True)
+
+    root = tmp_path / "resources"
+    manifest = create_or_reuse_environment(
+        root, _spec(), "myproj", ws, {"module": "codingagent"},
+        repo_origin="https://example.invalid/org/repo.git",
+    )
+    prov = manifest["provenance"]
+    assert prov["repo_path"] == str(ws)
+    assert prov["repo_origin"] == "https://example.invalid/org/repo.git"
+    assert prov["repo_commit"]  # non-empty git HEAD
+
+
 def test_verification_audit_never_experiment(tmp_path):
     prefix = tmp_path / "env"
     _fake_env(prefix)

@@ -50,11 +50,62 @@ def test_python_version_defaults_to_interpreter(tmp_path):
     assert spec["python"] == f"{sys.version_info.major}.{sys.version_info.minor}"
 
 
-def test_accelerator_override_wins(tmp_path):
+def test_accelerator_from_requires_gpu_and_variant(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "coding_agent.resources._host_has_gpu", lambda: True
+    )
     spec = collect_environment_spec(
-        tmp_path, python_version="3.11", accelerator_type="cuda", accelerator_variant="cu121"
+        tmp_path, python_version="3.11",
+        requires_gpu=True, accelerator_variant="cu121",
     )
     assert spec["accelerator"] == {"type": "cuda", "variant": "cu121"}
+
+
+def test_accelerator_cpu_when_no_gpu_requested(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "coding_agent.resources._host_has_gpu", lambda: True
+    )
+    spec = collect_environment_spec(tmp_path, python_version="3.11")
+    assert spec["accelerator"] == {"type": "cpu", "variant": ""}
+
+
+def test_accelerator_cpu_when_host_has_no_gpu(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "coding_agent.resources._host_has_gpu", lambda: False
+    )
+    spec = collect_environment_spec(tmp_path, python_version="3.11", requires_gpu=True)
+    assert spec["accelerator"] == {"type": "cpu", "variant": ""}
+
+
+def test_pip_index_profile_passthrough(tmp_path):
+    spec = collect_environment_spec(
+        tmp_path, python_version="3.11", pip_index_profile="aliyun"
+    )
+    assert spec["pip_index_profile"] == "aliyun"
+
+
+def test_raw_bytes_hashing_includes_contract_file_set(tmp_path):
+    import hashlib
+    (tmp_path / "requirements.txt").write_bytes(b"numpy\n")
+    (tmp_path / "setup.cfg").write_bytes(b"[metadata]\n")
+    (tmp_path / "poetry.lock").write_bytes(b"lockdata")
+    spec = collect_environment_spec(tmp_path, python_version="3.11")
+    paths = {f["path"] for f in spec["dependency_files"]}
+    assert {"requirements.txt", "setup.cfg", "poetry.lock"} <= paths
+    req = [f for f in spec["dependency_files"] if f["path"] == "requirements.txt"][0]
+    expected = hashlib.sha256(b"numpy\n").hexdigest()
+    assert req["sha256"] == expected
+
+
+def test_raw_bytes_vs_decoded_hash_differ():
+    """Guards against regressing to decode-then-hash.
+
+    Invalid UTF-8 bytes are silently dropped by errors=ignore, so the
+    decoded hash differs from the raw-byte hash.
+    """
+    from coding_agent.resources import sha256_hex, sha256_hex_bytes
+    data = b"numpy\n\xff\xfe"  # trailing invalid UTF-8
+    assert sha256_hex_bytes(data) != sha256_hex(data.decode("utf-8", errors="ignore"))
 
 
 def test_dependency_files_sorted(tmp_path):

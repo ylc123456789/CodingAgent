@@ -32,8 +32,13 @@ def canonical_dumps(obj) -> str:
 
 
 def sha256_hex(text: str) -> str:
-    """SHA-256 hex digest, lowercase."""
+    """SHA-256 hex digest of a UTF-8 string, lowercase."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def sha256_hex_bytes(data: bytes) -> str:
+    """SHA-256 hex digest of raw bytes, lowercase."""
+    return hashlib.sha256(data).hexdigest()
 
 
 def identity_subset(spec: dict) -> dict:
@@ -214,78 +219,85 @@ def _python_version_from_environment_yml(workspace: Path) -> str:
     return ""
 
 
-def _detect_accelerator() -> tuple[str, str]:
-    """Detect host accelerator deterministically.
+def _host_has_gpu() -> bool:
+    """Feasibility probe: whether the host exposes a usable GPU.
 
-    Returns ("cuda", variant) when torch reports a CUDA build in the
-    current interpreter, else ("cpu", "").  Variants require an
-    explicit override because no reliable offline detector exists.
+    Driver probing only decides feasibility, never the wheel variant.
     """
-    try:
-        import torch  # type: ignore
-        version = getattr(torch.version, "cuda", None)
-        if version:
-            return "cuda", "cu" + version.replace(".", "")
-    except Exception:
-        pass
-    return "cpu", ""
+    import shutil
+    if shutil.which("nvidia-smi"):
+        import subprocess
+        result = subprocess.run(
+            ["nvidia-smi"], capture_output=True, check=False, timeout=15
+        )
+        return result.returncode == 0
+    return False
 
 
 def _dependency_files(workspace: Path) -> list[dict]:
-    """Collect hashed dependency declarations, sorted by repo-relative path."""
+    """Collect dependency declarations per the frozen file set.
+
+    Files: environment.yml, requirements*.txt, pyproject.toml,
+    setup.py, setup.cfg, *.lock, requirements*.lock — sorted by
+    repo-relative path.  Hashes are over RAW FILE BYTES.
+    """
     files = []
     for rel in sorted(workspace.rglob("*")):
         if not rel.is_file():
             continue
         relposix = rel.relative_to(workspace).as_posix()
         name = relposix.split("/")[-1]
-        if name == "environment.yml" or name == "requirements.txt" or (
-            name.startswith("requirements") and name.endswith(".txt")
-        ) or relposix in ("pyproject.toml", "setup.py"):
-            files.append({
-                "path": relposix,
-                "sha256": sha256_hex(rel.read_bytes().decode("utf-8", errors="ignore")),
-            })
+        included = (
+            relposix == "environment.yml"
+            or relposix == "pyproject.toml"
+            or relposix == "setup.py"
+            or relposix == "setup.cfg"
+            or (name.startswith("requirements") and name.endswith(".txt"))
+            or name.endswith(".lock")
+        )
+        if not included:
+            continue
+        try:
+            raw = rel.read_bytes()
+        except OSError:
+            continue
+        files.append({"path": relposix, "sha256": sha256_hex_bytes(raw)})
     return sorted(files, key=lambda f: f["path"])
 
 
 def collect_environment_spec(
     workspace: Path,
     python_version: str = "",
-    accelerator_type: str = "",
+    requires_gpu: bool = False,
     accelerator_variant: str = "",
+    pip_index_profile: str = "",
 ) -> dict:
     """Build an ENVIRONMENT_SPEC_V1 document deterministically.
 
-    Identity inputs come from the workspace's dependency declarations
-    and the host platform; nothing here involves the LLM.
+    Identity inputs come from the workspace's dependency declarations,
+    caller-supplied task facts (requires_gpu, explicit accelerator
+    variant, mirror profile), and host feasibility.  The variant is
+    NEVER inferred from driver capabilities or from frameworks
+    installed in the caller process.
     """
     python = python_version or _python_version_from_environment_yml(workspace)
     if not python:
         import sys
         python = f"{sys.version_info.major}.{sys.version_info.minor}"
-    accel_type = accelerator_type
-    accel_variant = accelerator_variant
-    if not accel_type:
-        accel_type, detected_variant = _detect_accelerator()
-        if not accel_variant:
-            accel_variant = detected_variant
+    accel_type = "cuda" if (requires_gpu and _host_has_gpu()) else "cpu"
     return {
         "schema": "ENVIRONMENT_SPEC_V1",
         "python": python,
         "os": _normalize_os(),
         "arch": _normalize_arch(),
-        "accelerator": {"type": accel_type, "variant": accel_variant},
+        "accelerator": {"type": accel_type, "variant": accelerator_variant},
         "dependency_files": _dependency_files(workspace),
         "channels": [],
-        "pip_index_profile": "",
+        "pip_index_profile": pip_index_profile,
         "framework_constraints": [],
         "notes": "",
     }
 
-
-
-# ── resolved inventory and drift detection ─────────────────────────────────
 
 def compute_resolved_inventory(env_prefix: Path) -> dict:
     """Compute the normalized installed inventory of a conda env.
@@ -606,12 +618,25 @@ def run_verification_audit(prefix: Path, spec: dict, creator: dict) -> dict:
     }
 
 
+def _git_head(workspace: Path | None) -> str:
+    """Return git HEAD of a workspace, or empty string."""
+    if not workspace:
+        return ""
+    import subprocess
+    result = subprocess.run(
+        ["git", "-C", str(workspace), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=False, timeout=15,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
 def create_or_reuse_environment(
     resource_root: Path,
     spec: dict,
     project: str,
     project_workspace: Path | None = None,
     creator: dict | None = None,
+    repo_origin: str = "",
 ) -> dict:
     """Deterministic create-or-reuse of a verification-level environment.
 
@@ -671,7 +696,11 @@ def create_or_reuse_environment(
             "created_at": _now_iso(),
             "updated_at": _now_iso(),
             "pinned": False,
-            "provenance": {},
+            "provenance": {
+                "repo_path": str(project_workspace) if project_workspace else "",
+                "repo_origin": repo_origin or "local",
+                "repo_commit": _git_head(project_workspace),
+            },
             "spec": spec,
             "resolved": None,
             "audits": [],
@@ -803,13 +832,19 @@ def inspect_environments(resource_root: Path) -> list[dict]:
 
 
 def _active_leases(resource_root: Path) -> dict[str, dict]:
-    """Index active (unreleased, live-holder) leases by env_id."""
+    """Index active (unreleased, live-holder) leases by env_id.
+
+    Contract layout: leases live under
+    <root>/environments/<env_id>/usage/lease_*.json — never a
+    separate top-level leases directory.
+    """
+    import socket
     root = Path(resource_root)
-    leases_dir = root / "leases"
-    if not leases_dir.exists():
+    environments_dir = root / "environments"
+    if not environments_dir.exists():
         return {}
     active: dict[str, dict] = {}
-    for lease_file in sorted(leases_dir.glob("*.json")):
+    for lease_file in sorted(environments_dir.glob("*/usage/lease_*.json")):
         try:
             lease = json.loads(lease_file.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -819,7 +854,6 @@ def _active_leases(resource_root: Path) -> dict[str, dict]:
         if lease.get("released_at"):
             continue
         holder_pid = lease.get("pid", 0)
-        import socket
         if lease.get("host") == socket.gethostname() and holder_pid and not _pid_alive(holder_pid):
             continue
         env = lease.get("env_id", "")

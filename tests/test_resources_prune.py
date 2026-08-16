@@ -64,7 +64,8 @@ def test_prune_skips_active_lease(tmp_path):
     root = tmp_path / "resources"
     old = "2020-01-01T00:00:00Z"
     _write_manifest(root, "resenv_leased_000000000000", last_used_at=old)
-    (root / "leases").mkdir(parents=True)
+    usage_dir = root / "environments" / "resenv_leased_000000000000" / "usage"
+    usage_dir.mkdir(parents=True)
     lease = {
         "schema": "RESOURCE_LEASE_V1",
         "lease_id": "lease-1",
@@ -77,7 +78,7 @@ def test_prune_skips_active_lease(tmp_path):
         "heartbeat_at": "2026-08-16T00:00:00Z",
         "released_at": None,
     }
-    (root / "leases" / "lease-1.json").write_text(json.dumps(lease))
+    (usage_dir / "lease_1.json").write_text(json.dumps(lease))
     candidates = prune_environments(root, min_unused_days=30)
     assert [c["env_id"] for c in candidates] == []
 
@@ -88,6 +89,22 @@ def test_prune_skips_recently_used(tmp_path):
     _write_manifest(root, "resenv_recent_000000000000", last_used_at=recent)
     candidates = prune_environments(root, min_unused_days=30)
     assert candidates == []
+
+
+def test_top_level_leases_dir_is_ignored(tmp_path):
+    """The old <root>/leases/ layout must not protect envs (contract moved)."""
+    root = tmp_path / "resources"
+    _write_manifest(root, "resenv_x_000000000000", last_used_at="2020-01-01T00:00:00Z")
+    (root / "leases").mkdir(parents=True)
+    lease = {
+        "schema": "RESOURCE_LEASE_V1", "lease_id": "l", "env_id": "resenv_x_000000000000",
+        "run_id": "r", "task_id": "t", "host": socket.gethostname(),
+        "pid": __import__("os").getpid(), "acquired_at": "2026-08-16T00:00:00Z",
+        "heartbeat_at": "2026-08-16T00:00:00Z", "released_at": None,
+    }
+    (root / "leases" / "l.json").write_text(json.dumps(lease))
+    candidates = prune_environments(root, min_unused_days=30)
+    assert [c["env_id"] for c in candidates] == ["resenv_x_000000000000"]
 
 
 def test_prune_reports_dry_run_flag(tmp_path):
