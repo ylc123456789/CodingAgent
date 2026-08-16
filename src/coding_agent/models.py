@@ -36,6 +36,7 @@ class CodeTaskSpec(BaseModel):
     branch: str = ""
     env_policy: Literal["auto", "reuse_only", "frozen"] = "auto"
     env_name: str = ""
+    resource_root: str = ""
 
     @model_validator(mode="after")
     def _restricted_policy_requires_env(self):

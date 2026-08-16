@@ -167,3 +167,118 @@ def transition_manifest(manifest: dict, new_state: str) -> dict:
     manifest["state"] = new_state
     manifest["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     return manifest
+
+
+
+# ── ENVIRONMENT_SPEC_V1 collection ────────────────────────────────────────
+
+DEPENDENCY_FILE_PATTERNS = (
+    "environment.yml",
+    "requirements.txt",
+    "pyproject.toml",
+    "setup.py",
+)
+
+
+def _normalize_os() -> str:
+    import sys
+    return {"linux": "linux", "darwin": "macos", "win32": "windows"}.get(
+        sys.platform, "linux"
+    )
+
+
+def _normalize_arch() -> str:
+    import platform
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        return "x86_64"
+    if machine in ("aarch64", "arm64"):
+        return "aarch64"
+    return "x86_64"
+
+
+def _python_version_from_environment_yml(workspace: Path) -> str:
+    """Extract python major.minor from environment.yml when declared."""
+    import re as _re
+    yml = workspace / "environment.yml"
+    if not yml.exists():
+        return ""
+    try:
+        text = yml.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        match = _re.search(r"\bpython\s*[=~<>]?\s*(\d+\.\d+)", line)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def _detect_accelerator() -> tuple[str, str]:
+    """Detect host accelerator deterministically.
+
+    Returns ("cuda", variant) when torch reports a CUDA build in the
+    current interpreter, else ("cpu", "").  Variants require an
+    explicit override because no reliable offline detector exists.
+    """
+    try:
+        import torch  # type: ignore
+        version = getattr(torch.version, "cuda", None)
+        if version:
+            return "cuda", "cu" + version.replace(".", "")
+    except Exception:
+        pass
+    return "cpu", ""
+
+
+def _dependency_files(workspace: Path) -> list[dict]:
+    """Collect hashed dependency declarations, sorted by repo-relative path."""
+    files = []
+    for rel in sorted(workspace.rglob("*")):
+        if not rel.is_file():
+            continue
+        relposix = rel.relative_to(workspace).as_posix()
+        name = relposix.split("/")[-1]
+        if name == "environment.yml" or name == "requirements.txt" or (
+            name.startswith("requirements") and name.endswith(".txt")
+        ) or relposix in ("pyproject.toml", "setup.py"):
+            files.append({
+                "path": relposix,
+                "sha256": sha256_hex(rel.read_bytes().decode("utf-8", errors="ignore")),
+            })
+    return sorted(files, key=lambda f: f["path"])
+
+
+def collect_environment_spec(
+    workspace: Path,
+    python_version: str = "",
+    accelerator_type: str = "",
+    accelerator_variant: str = "",
+) -> dict:
+    """Build an ENVIRONMENT_SPEC_V1 document deterministically.
+
+    Identity inputs come from the workspace's dependency declarations
+    and the host platform; nothing here involves the LLM.
+    """
+    python = python_version or _python_version_from_environment_yml(workspace)
+    if not python:
+        import sys
+        python = f"{sys.version_info.major}.{sys.version_info.minor}"
+    accel_type = accelerator_type
+    accel_variant = accelerator_variant
+    if not accel_type:
+        accel_type, detected_variant = _detect_accelerator()
+        if not accel_variant:
+            accel_variant = detected_variant
+    return {
+        "schema": "ENVIRONMENT_SPEC_V1",
+        "python": python,
+        "os": _normalize_os(),
+        "arch": _normalize_arch(),
+        "accelerator": {"type": accel_type, "variant": accel_variant},
+        "dependency_files": _dependency_files(workspace),
+        "channels": [],
+        "pip_index_profile": "",
+        "framework_constraints": [],
+        "notes": "",
+    }
