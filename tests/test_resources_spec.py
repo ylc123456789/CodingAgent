@@ -44,10 +44,11 @@ def test_python_version_from_environment_yml(tmp_path):
     assert spec["python"] == "3.10"
 
 
-def test_python_version_defaults_to_interpreter(tmp_path):
-    import sys
+def test_python_version_defaults_to_contract_default(tmp_path):
+    """No explicit version and no environment.yml pin: the contract default
+    (3.10) applies — the caller's own interpreter is NOT identity."""
     spec = collect_environment_spec(tmp_path)
-    assert spec["python"] == f"{sys.version_info.major}.{sys.version_info.minor}"
+    assert spec["python"] == "3.10"
 
 
 def test_accelerator_from_requires_gpu_and_variant(tmp_path, monkeypatch):

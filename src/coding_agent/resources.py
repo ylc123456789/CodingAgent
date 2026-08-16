@@ -159,67 +159,9 @@ def _normalize_arch() -> str:
     return "x86_64"
 
 
-def _python_version_from_environment_yml(workspace: Path) -> str:
-    """Extract python major.minor from environment.yml when declared."""
-    import re as _re
-    yml = workspace / "environment.yml"
-    if not yml.exists():
-        return ""
-    try:
-        text = yml.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return ""
-    for line in text.splitlines():
-        match = _re.search(r"\bpython\s*[=~<>]?\s*(\d+\.\d+)", line)
-        if match:
-            return match.group(1)
-    return ""
-
-
 def _host_has_gpu() -> bool:
-    """Feasibility probe: whether the host exposes a usable GPU.
-
-    Driver probing only decides feasibility, never the wheel variant.
-    """
-    import shutil
-    if shutil.which("nvidia-smi"):
-        import subprocess
-        result = subprocess.run(
-            ["nvidia-smi"], capture_output=True, check=False, timeout=15
-        )
-        return result.returncode == 0
-    return False
-
-
-def _dependency_files(workspace: Path) -> list[dict]:
-    """Collect dependency declarations per the frozen file set.
-
-    Files: environment.yml, requirements*.txt, pyproject.toml,
-    setup.py, setup.cfg, *.lock, requirements*.lock — sorted by
-    repo-relative path.  Hashes are over RAW FILE BYTES.
-    """
-    files = []
-    for rel in sorted(workspace.rglob("*")):
-        if not rel.is_file():
-            continue
-        relposix = rel.relative_to(workspace).as_posix()
-        name = relposix.split("/")[-1]
-        included = (
-            relposix == "environment.yml"
-            or relposix == "pyproject.toml"
-            or relposix == "setup.py"
-            or relposix == "setup.cfg"
-            or (name.startswith("requirements") and name.endswith(".txt"))
-            or name.endswith(".lock")
-        )
-        if not included:
-            continue
-        try:
-            raw = rel.read_bytes()
-        except OSError:
-            continue
-        files.append({"path": relposix, "sha256": sha256_hex_bytes(raw)})
-    return sorted(files, key=lambda f: f["path"])
+    """Feasibility probe, per the vendored contract (never identity)."""
+    return _contract.probe_gpu_usable()
 
 
 def collect_environment_spec(
@@ -237,10 +179,11 @@ def collect_environment_spec(
     NEVER inferred from driver capabilities or from frameworks
     installed in the caller process.
     """
-    python = python_version or _python_version_from_environment_yml(workspace)
-    if not python:
-        import sys
-        python = f"{sys.version_info.major}.{sys.version_info.minor}"
+    # python selection, dependency enumeration, and constraint extraction
+    # all follow the vendored contract (never the caller's interpreter).
+    python = _contract.select_python_version(python_version, workspace)
+    if not accelerator_variant:
+        accelerator_variant = _contract.constraint_cuda_variant(workspace)
     accel_type = "cuda" if (requires_gpu and _host_has_gpu()) else "cpu"
     return {
         "schema": "ENVIRONMENT_SPEC_V1",
@@ -248,7 +191,7 @@ def collect_environment_spec(
         "os": _normalize_os(),
         "arch": _normalize_arch(),
         "accelerator": {"type": accel_type, "variant": accelerator_variant},
-        "dependency_files": _dependency_files(workspace),
+        "dependency_files": _contract.collect_dependency_files(workspace),
         "channels": [],
         "pip_index_profile": pip_index_profile,
         "framework_constraints": [],
