@@ -376,3 +376,392 @@ def check_manifest_freshness(manifest: dict, env_prefix: Path) -> None:
                 "or rebuild the environment and refresh its manifest",
             ],
         )
+
+
+
+# ── creation locks (standard-library atomic create) ────────────────────────
+
+def _now_iso() -> str:
+    import datetime
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def _pid_alive(pid: int) -> bool:
+    import os
+    try:
+        os.kill(pid, 0)
+    except (OSError, ProcessLookupError):
+        return False
+    return True
+
+
+def _acquire_creation_lock(resource_root: Path, fingerprint: str, timeout: float = 300.0):
+    """Acquire the per-fingerprint creation lock.
+
+    Returns a lock handle with .release().  A lock held by a dead
+    process is reclaimed; a live holder is waited on with a bounded
+    poll (host, pid, started_at are recorded in the lock file).
+    """
+    import os
+    import socket
+    import time
+
+    class LockHandle:
+        def __init__(self, path):
+            self.path = path
+            self.released = False
+
+        def release(self):
+            if not self.released:
+                try:
+                    os.unlink(self.path)
+                except OSError:
+                    pass
+                self.released = True
+
+    lock_dir = Path(resource_root) / "locks"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_dir / f"{fingerprint}.lock"
+    deadline = time.monotonic() + timeout
+
+    while True:
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            payload = {
+                "host": socket.gethostname(),
+                "pid": os.getpid(),
+                "started_at": _now_iso(),
+            }
+            os.write(fd, canonical_dumps(payload).encode("utf-8"))
+            os.close(fd)
+            return LockHandle(lock_path)
+        except FileExistsError:
+            holder = {}
+            try:
+                holder = json.loads(lock_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                pass
+            holder_pid = holder.get("pid", 0)
+            if holder.get("host") == socket.gethostname() and holder_pid and not _pid_alive(holder_pid):
+                try:
+                    lock_path.unlink()
+                except OSError:
+                    pass
+                continue
+            if time.monotonic() >= deadline:
+                raise EnvironmentBlockedError(
+                    f"creation lock for fingerprint {fingerprint[:12]} is held by "
+                    f"{holder.get('host', 'unknown')} pid={holder_pid}",
+                    ["wait for the other task to finish, or remove the stale lock"],
+                )
+            time.sleep(1.0)
+
+
+# ── environment creation and reuse ─────────────────────────────────────────
+
+def env_prefix(resource_root: Path, env_id_value: str) -> Path:
+    """Physical conda prefix for a managed environment id."""
+    return Path(resource_root) / "conda-envs" / env_id_value
+
+
+def _find_conda() -> str | None:
+    from .runtime.runner import _conda_executable
+    return _conda_executable()
+
+
+def _run_check(args: list[str], timeout: int = 300) -> tuple[int, str]:
+    """Run a command; return (returncode, combined output)."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            args, capture_output=True, text=True, check=False, timeout=timeout
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 1, str(exc)
+    return result.returncode, (result.stdout or "") + (result.stderr or "")
+
+
+def create_environment_at(
+    prefix: Path, spec: dict, project_workspace: Path = None
+) -> None:
+    """Physically create a conda environment for the given spec.
+
+    environment.yml is installed via conda env create; requirements
+    files via pip install -r; pyproject.toml/setup.py via pip install
+    of the workspace itself.  Deterministic baseline; the LLM does not
+    participate.
+    """
+    conda = _find_conda()
+    if not conda:
+        raise EnvironmentBlockedError(
+            "no conda executable found to create the environment",
+            ["install conda or set CONDA_EXE"],
+        )
+
+    def dep_files_of(suffix: str) -> list[dict]:
+        return [f for f in spec["dependency_files"] if f["path"].endswith(suffix) or f["path"] == suffix]
+
+    yml = dep_files_of("environment.yml")
+    requirements = [f for f in spec["dependency_files"] if f["path"].startswith("requirements") and f["path"].endswith(".txt")]
+    project_files = [f for f in spec["dependency_files"] if f["path"] in ("pyproject.toml", "setup.py")]
+
+    prefix.mkdir(parents=True, exist_ok=True)
+    if yml:
+        yml_path = project_workspace / yml[0]["path"] if project_workspace else None
+        if yml_path and yml_path.exists():
+            rc, output = _run_check(
+                [conda, "env", "create", "-p", str(prefix), "-f", str(yml_path)]
+            )
+            if rc != 0:
+                raise EnvironmentBlockedError(
+                    f"conda env create failed: {output.strip()[-500:]}",
+                    ["fix the environment.yml declaration"],
+                )
+        else:
+            rc, output = _run_check(
+                [conda, "create", "-p", str(prefix), f"python={spec['python']}", "-y"]
+            )
+            if rc != 0:
+                raise EnvironmentBlockedError(
+                    f"conda create failed: {output.strip()[-500:]}",
+                    ["fix the python version constraint"],
+                )
+    else:
+        rc, output = _run_check(
+            [conda, "create", "-p", str(prefix), f"python={spec['python']}", "-y"]
+        )
+        if rc != 0:
+            raise EnvironmentBlockedError(
+                f"conda create failed: {output.strip()[-500:]}",
+                ["fix the python version constraint"],
+            )
+
+    pip = prefix / "bin" / "pip"
+    if not pip.exists():
+        raise EnvironmentBlockedError(
+            f"created prefix has no pip: {prefix}",
+            ["check the conda create invocation"],
+        )
+    for req in requirements:
+        req_path = project_workspace / req["path"] if project_workspace else None
+        if req_path and req_path.exists():
+            rc, output = _run_check([str(pip), "install", "-r", str(req_path)])
+            if rc != 0:
+                raise EnvironmentBlockedError(
+                    f"pip install -r failed: {output.strip()[-500:]}",
+                    [f"fix the dependency declaration {req['path']}"],
+                )
+    if project_files and project_workspace:
+        rc, output = _run_check([str(pip), "install", str(project_workspace)])
+        if rc != 0:
+            raise EnvironmentBlockedError(
+                f"project install failed: {output.strip()[-500:]}",
+                ["fix pyproject.toml/setup.py packaging"],
+            )
+
+
+def run_verification_audit(prefix: Path, spec: dict, creator: dict) -> dict:
+    """Run a verification-level audit and return the audit document.
+
+    Checks: policy compliance (always pass for auto-created envs) and
+    framework imports declared in framework_constraints.  The audit
+    level is always `verification` — CodingAgent never grants
+    `experiment` certification.
+    """
+    python_exe = prefix / "bin" / "python"
+    if not python_exe.exists():
+        raise EnvironmentBlockedError(
+            f"environment prefix missing python: {prefix}",
+            ["the environment was not created correctly"],
+        )
+    checks = [{"name": "policy", "outcome": "pass", "detail": "created under auto policy"}]
+    outcome = "pass"
+    for constraint in spec.get("framework_constraints", []):
+        fw = constraint.split("==")[0].split(">=")[0].split("<=")[0].split("~=")[0].strip()
+        if not fw:
+            continue
+        rc, output = _run_check(
+            [str(python_exe), "-c", f"import {fw}; print('ok')"]
+        )
+        check = {
+            "name": "framework_import",
+            "outcome": "pass" if rc == 0 else "fail",
+            "detail": output.strip()[-200:],
+            "evidence_path": "",
+        }
+        if rc != 0:
+            outcome = "fail"
+        checks.append(check)
+    return {
+        "schema": "ENVIRONMENT_AUDIT_V1",
+        "audit_id": f"audit_verification_{_now_iso().replace(':', '').replace('-', '').replace('.', '')}",
+        "env_id": "",
+        "level": "verification",
+        "outcome": outcome,
+        "resolved_fingerprint": "",
+        "audited_by": creator,
+        "at": _now_iso(),
+        "checks": checks,
+        "notes": "",
+    }
+
+
+def create_or_reuse_environment(
+    resource_root: Path,
+    spec: dict,
+    project: str,
+    project_workspace: Path | None = None,
+    creator: dict | None = None,
+) -> dict:
+    """Deterministic create-or-reuse of a verification-level environment.
+
+    Returns the manifest.  A ready manifest with matching identity and
+    fresh inventory is reused with zero creation; anything else fails
+    with EnvironmentBlockedError (CodingAgent never repairs in place).
+    """
+    import time
+
+    root = Path(resource_root)
+    fp = spec_fingerprint(spec)
+    id_value = env_id(project, fp)
+    creator_info = creator or {"module": "codingagent"}
+
+    manifest = read_manifest(root, id_value)
+    if manifest and manifest["state"] == "ready":
+        if manifest["spec_fingerprint"] != fp:
+            raise EnvironmentBlockedError(
+                f"manifest fingerprint mismatch for {id_value}",
+                ["this indicates a hash collision; rename the project"],
+            )
+        prefix = Path(manifest["prefix"])
+        if not prefix.exists():
+            raise EnvironmentBlockedError(
+                f"manifest prefix missing: {prefix}",
+                ["rebuild the environment"],
+            )
+        check_manifest_freshness(manifest, prefix)
+        return manifest
+
+    if manifest and manifest["state"] in ("failed", "drifted"):
+        raise EnvironmentBlockedError(
+            f"environment {id_value} is {manifest['state']} and will not be "
+            f"repaired in place",
+            ["rebuild via a fresh content-addressed creation after removing the old manifest"],
+        )
+
+    lock = _acquire_creation_lock(root, fp)
+    try:
+        manifest = read_manifest(root, id_value)
+        if manifest and manifest["state"] == "ready":
+            prefix = Path(manifest["prefix"])
+            check_manifest_freshness(manifest, prefix)
+            return manifest
+
+        prefix = env_prefix(root, id_value)
+        manifest = {
+            "schema": "ENVIRONMENT_MANIFEST_V1",
+            "env_id": id_value,
+            "state": "creating",
+            "certification": "none",
+            "spec_fingerprint": fp,
+            "resolved_fingerprint": None,
+            "prefix": str(prefix),
+            "manager": "codingagent",
+            "created_by": creator_info,
+            "created_at": _now_iso(),
+            "updated_at": _now_iso(),
+            "pinned": False,
+            "provenance": {},
+            "spec": spec,
+            "resolved": None,
+            "audits": [],
+            "usage": [],
+        }
+        write_manifest_atomic(root, manifest)
+        try:
+            create_environment_at(prefix, spec, project_workspace)
+            resolved = compute_resolved_inventory(prefix)
+            manifest["resolved"] = resolved
+            manifest["resolved_fingerprint"] = resolved_fingerprint(resolved)
+            audit = run_verification_audit(prefix, spec, creator_info)
+            audit["env_id"] = id_value
+            audit["resolved_fingerprint"] = manifest["resolved_fingerprint"]
+            if audit["outcome"] == "fail":
+                manifest["state"] = "failed"
+                manifest["certification"] = "none"
+                write_manifest_atomic(root, manifest)
+                raise EnvironmentBlockedError(
+                    "verification audit failed after environment creation",
+                    ["fix the dependency declarations and rebuild"],
+                )
+            manifest["state"] = "ready"
+            manifest["certification"] = "verification"
+            manifest["audits"].append({
+                "artifact": f"audits/{audit['audit_id']}.json",
+                "level": "verification",
+                "outcome": "pass",
+                "at": audit["at"],
+            })
+            write_manifest_atomic(root, manifest)
+            audit_dir = Path(root) / "environments" / id_value / "audits"
+            audit_dir.mkdir(parents=True, exist_ok=True)
+            (audit_dir / f"{audit['audit_id']}.json").write_text(
+                canonical_dumps(audit), encoding="utf-8"
+            )
+            return manifest
+        except Exception:
+            manifest = read_manifest(root, id_value) or manifest
+            if manifest["state"] == "creating":
+                manifest["state"] = "failed"
+                manifest["updated_at"] = _now_iso()
+                try:
+                    write_manifest_atomic(root, manifest)
+                except ValueError:
+                    pass
+            raise
+    finally:
+        lock.release()
+
+
+def bind_existing_environment(
+    resource_root: Path,
+    env_name: str,
+    spec: dict,
+    policy: str,
+) -> dict:
+    """Validate an existing env against the V1 contract before use.
+
+    Used by reuse_only and frozen.  Unregistered envs, wrong spec,
+    non-ready state, or drift all raise EnvironmentBlockedError.
+    """
+    root = Path(resource_root)
+    manifest = read_manifest(root, env_name)
+    if manifest is None:
+        # tolerate an env that is a plain conda name in legacy mode:
+        raise EnvironmentBlockedError(
+            f"environment {env_name!r} is not registered in resource root {root}",
+            [
+                "register the environment via its manifest",
+                "or pass resource_root='' to use legacy env binding",
+            ],
+        )
+    if manifest["spec_fingerprint"] != spec_fingerprint(spec):
+        raise EnvironmentBlockedError(
+            f"environment {env_name} spec fingerprint does not match the "
+            f"current workspace",
+            ["create a content-addressed env from the current spec",
+             "or revert the dependency declarations"],
+        )
+    if manifest["state"] != "ready":
+        raise EnvironmentBlockedError(
+            f"environment {env_name} is {manifest['state']}, not ready",
+            ["wait for creation to finish or rebuild"],
+        )
+    prefix = Path(manifest["prefix"])
+    if not prefix.exists():
+        raise EnvironmentBlockedError(
+            f"environment prefix missing: {prefix}",
+            ["rebuild the environment"],
+        )
+    check_manifest_freshness(manifest, prefix)
+    return manifest
