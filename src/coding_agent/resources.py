@@ -282,3 +282,97 @@ def collect_environment_spec(
         "framework_constraints": [],
         "notes": "",
     }
+
+
+
+# ── resolved inventory and drift detection ─────────────────────────────────
+
+def compute_resolved_inventory(env_prefix: Path) -> dict:
+    """Compute the normalized installed inventory of a conda env.
+
+    Deterministic: conda explicit inventory and pip freeze run through
+    the environment's own executables; hashed canonically.  Frameworks
+    are detected from the pip inventory (torch/tensorflow/jax).
+    """
+    import shlex
+    import subprocess
+    prefix = Path(env_prefix)
+
+    def _run(args: list[str]) -> str:
+        try:
+            result = subprocess.run(
+                args, capture_output=True, text=True, check=False, timeout=120
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        return result.stdout if result.returncode == 0 else ""
+
+    python_exe = prefix / "bin" / "python"
+    conda_exe = prefix / "bin" / "conda"
+    if not python_exe.exists():
+        raise EnvironmentBlockedError(
+            f"environment prefix does not exist: {prefix}",
+            ["create the environment before computing its inventory"],
+        )
+
+    python_version = _run([str(python_exe), "-c",
+                           "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"]).strip()
+
+    conda_out = ""
+    if conda_exe.exists():
+        conda_out = _run([str(conda_exe), "list", "--explicit"])
+
+    pip_out = _run([str(python_exe), "-m", "pip", "freeze"])
+
+    frameworks: dict = {}
+    for line in pip_out.splitlines():
+        lowered = line.lower()
+        for fw in ("torch", "tensorflow", "jax"):
+            if lowered.startswith(fw + "=="):
+                frameworks[fw] = {"version": line.split("==")[1].strip()}
+        if lowered.startswith("torch==") and "cuda" in lowered:
+            # e.g. torch==2.6.0+cu124
+            package = line.split("==")[1]
+            if "+cu" in package:
+                frameworks.setdefault("torch", {})["cuda"] = package.split("+cu")[1].strip()
+
+    return {
+        "python": python_version,
+        "conda_inventory_sha256": sha256_hex(conda_out) if conda_out else "",
+        "pip_inventory_sha256": sha256_hex(pip_out) if pip_out else "",
+        "frameworks": frameworks,
+        "abi_summary": "",
+    }
+
+
+def drift_state(manifest: dict, computed_resolved_fingerprint: str) -> bool:
+    """Return True when the environment has drifted from its manifest.
+
+    Drift is a mismatch between the manifest's recorded
+    resolved_fingerprint and the freshly computed one.  A manifest
+    without a recorded inventory cannot be verified and is
+    conservatively treated as drifted.
+    """
+    recorded = manifest.get("resolved_fingerprint")
+    if not recorded:
+        return True
+    return recorded != computed_resolved_fingerprint
+
+
+def check_manifest_freshness(manifest: dict, env_prefix: Path) -> None:
+    """Raise EnvironmentBlockedError when a bound env has drifted.
+
+    Used by reuse_only and frozen before executing anything.
+    """
+    computed = resolved_fingerprint(compute_resolved_inventory(env_prefix))
+    if drift_state(manifest, computed):
+        raise EnvironmentBlockedError(
+            f"environment {manifest['env_id']} has drifted from its manifest "
+            f"(recorded {manifest['resolved_fingerprint'][:12]}..., "
+            f"computed {computed[:12]}...)",
+            [
+                "do not reuse this environment",
+                "create a new content-addressed environment from the current spec",
+                "or rebuild the environment and refresh its manifest",
+            ],
+        )
