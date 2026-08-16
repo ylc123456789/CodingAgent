@@ -35,7 +35,8 @@ def _resolve_session_id(spec):
     return _generate_session_id(prefix)
 
 
-def write_session_card(spec, report, output_dir, kind="task_session"):
+def write_session_card(spec, report, output_dir, kind="task_session",
+                     environment_info: dict | None = None):
     """Write session.yaml into output_dir after a run completes."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -88,7 +89,7 @@ def write_session_card(spec, report, output_dir, kind="task_session"):
         }
         bindings: dict = {"repo": repo_binding}
         if getattr(spec, "env_name", ""):
-            bindings["environment"] = {
+            env_binding = {
                 "name": spec.env_name,
                 "policy": getattr(spec, "env_policy", "auto"),
                 "fingerprint": "",
@@ -96,6 +97,14 @@ def write_session_card(spec, report, output_dir, kind="task_session"):
                 "certified_at": "",
                 "audit_artifact": "",
             }
+            if environment_info:
+                # content-addressed extras (additive, optional for readers)
+                env_binding["manifest_path"] = environment_info.get("manifest_path", "")
+                env_binding["spec_fingerprint"] = environment_info.get("spec_fingerprint", "")
+                env_binding["resolved_fingerprint"] = environment_info.get("resolved_fingerprint", "")
+                env_binding["prefix"] = environment_info.get("prefix", "")
+                env_binding["certification"] = environment_info.get("certification", "verification")
+            bindings["environment"] = env_binding
         card["bindings"] = bindings
 
     with open(output_dir / "session.yaml", "w") as f:

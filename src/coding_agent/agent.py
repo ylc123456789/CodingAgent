@@ -268,10 +268,95 @@ def _prepare_workspace(spec: CodeTaskSpec) -> None:
     )
 
 
+
+
+def _prepare_environment(spec: CodeTaskSpec) -> dict | None:
+    """Resolve the execution environment before the controller runs.
+
+    Legacy mode (no resource_root): unchanged — env_name is used
+    verbatim if set.  Content-addressed mode:
+
+    - auto without env_name: create or reuse a verification-level env
+      and bind its prefix so verify commands run inside it;
+    - auto with env_name / reuse_only / frozen: validate the bound
+      environment against its manifest (spec match, ready state, and
+      drift) and block with a structured error otherwise.
+
+    Returns environment info for the session card, or None.
+    """
+    if not spec.resource_root:
+        return None
+    from pathlib import Path as _Path
+    from .resources import (
+        bind_existing_environment,
+        collect_environment_spec,
+        create_or_reuse_environment,
+        project_slug,
+    )
+
+    root = _Path(spec.resource_root)
+    spec_doc = collect_environment_spec(spec.workspace_path)
+    if spec.repo_url:
+        project = spec.repo_url.rstrip("/").split("/")[-1].replace(".git", "")
+    else:
+        project = spec.workspace_path.name
+    project = project_slug(project)
+
+    creator = {"module": "codingagent"}
+    if spec.session_id:
+        creator["task_id"] = spec.session_id
+
+    if spec.env_policy == "auto" and not spec.env_name:
+        manifest = create_or_reuse_environment(
+            root, spec_doc, project, spec.workspace_path, creator
+        )
+        spec.env_name = manifest["prefix"]
+        return {
+            "env_id": manifest["env_id"],
+            "manifest_path": str(root / "environments" / manifest["env_id"] / "manifest.json"),
+            "spec_fingerprint": manifest["spec_fingerprint"],
+            "resolved_fingerprint": manifest["resolved_fingerprint"] or "",
+            "prefix": manifest["prefix"],
+            "certification": manifest["certification"],
+        }
+
+    if spec.env_name:
+        manifest = bind_existing_environment(root, spec.env_name, spec_doc, spec.env_policy)
+        return {
+            "env_id": manifest["env_id"],
+            "manifest_path": str(root / "environments" / manifest["env_id"] / "manifest.json"),
+            "spec_fingerprint": manifest["spec_fingerprint"],
+            "resolved_fingerprint": manifest["resolved_fingerprint"] or "",
+            "prefix": manifest["prefix"],
+            "certification": manifest["certification"],
+        }
+    return None
+
+
 def run_code_task(spec: CodeTaskSpec) -> PatchReport:
     """Run a coding task through the step controller."""
     _prepare_workspace(spec)
+    environment_info = None
+    try:
+        environment_info = _prepare_environment(spec)
+    except Exception as exc:
+        from .models import PatchReport as _PatchReport
+        from .resources import EnvironmentBlockedError
+        if isinstance(exc, EnvironmentBlockedError):
+            report = _PatchReport(
+                status="blocked",
+                changed_files=[],
+                diff_path=None,
+                verification_results=[],
+                summary=exc.reason,
+                residual_risks=exc.required_actions,
+            )
+            from .session import write_session_card
+            write_session_card(spec, report, spec.output_dir, kind="task_session")
+            return report
+        raise
     report = run_step_controller(spec)
     from .session import write_session_card
-    write_session_card(spec, report, spec.output_dir, kind="task_session")
+    write_session_card(spec, report, spec.output_dir, kind="task_session",
+                       environment_info=environment_info)
     return report

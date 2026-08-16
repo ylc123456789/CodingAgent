@@ -42,14 +42,21 @@ def _conda_executable() -> str | None:
 
 
 def _wrap_conda(command: str, env_name: str) -> str:
-    """Wrap a shell command to run inside a conda environment."""
+    """Wrap a shell command to run inside a conda environment.
+
+    env_name may be a registered environment name (wrapped with -n)
+    or an absolute prefix path such as a content-addressed environment
+    under a resource root (wrapped with -p).
+    """
     conda = _conda_executable()
     if not conda:
         raise RuntimeError(
             f"env_name={env_name!r} specified but no conda executable found"
         )
+    is_prefix = os.path.isabs(env_name) or "/" in env_name
+    flag = "-p" if is_prefix else "-n"
     return (
-        f"{shlex.quote(conda)} run --no-capture-output -n "
+        f"{shlex.quote(conda)} run --no-capture-output {flag} "
         f"{shlex.quote(env_name)} bash -c {shlex.quote(command)}"
     )
 
