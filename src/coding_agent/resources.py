@@ -26,65 +26,23 @@ class EnvironmentBlockedError(RuntimeError):
         self.required_actions = required_actions or []
 
 
-def canonical_dumps(obj) -> str:
-    """Canonical JSON: sorted keys, ASCII-safe, no insignificant whitespace."""
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+# The contract algorithms live in ONE place: the vendored contract file
+# (byte-identical across the three repos; a test asserts the sha256).
+# Only CodingAgent-specific helpers stay local.
+from ._vendor import env_contract_v1 as _contract
 
-
-def sha256_hex(text: str) -> str:
-    """SHA-256 hex digest of a UTF-8 string, lowercase."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+canonical_dumps = _contract.canonical_dumps
+sha256_hex = _contract.sha256_hex
+identity_subset = _contract.identity_subset
+spec_fingerprint = _contract.spec_fingerprint
+resolved_fingerprint = _contract.resolved_fingerprint
+project_slug = _contract.project_slug
+env_id = _contract.env_id
 
 
 def sha256_hex_bytes(data: bytes) -> str:
     """SHA-256 hex digest of raw bytes, lowercase."""
     return hashlib.sha256(data).hexdigest()
-
-
-def identity_subset(spec: dict) -> dict:
-    """The identity-bearing subset of ENVIRONMENT_SPEC_V1."""
-    return {
-        "python": spec["python"],
-        "os": spec["os"],
-        "arch": spec["arch"],
-        "accelerator": {
-            "type": spec["accelerator"]["type"],
-            "variant": spec["accelerator"].get("variant", ""),
-        },
-        "dependency_files": [
-            {k: f[k] for k in ("path", "sha256", "revision") if k in f}
-            for f in sorted(spec["dependency_files"], key=lambda f: f["path"])
-        ],
-        "channels": sorted(spec.get("channels", [])),
-        "framework_constraints": sorted(spec.get("framework_constraints", [])),
-    }
-
-
-def spec_fingerprint(spec: dict) -> str:
-    """Deterministic identity fingerprint of a requested environment spec."""
-    return sha256_hex(canonical_dumps(identity_subset(spec)))
-
-
-def resolved_fingerprint(resolved: dict) -> str:
-    """Fingerprint of the actual installed inventory (drift detection).
-
-    Hashes the canonical form of the full resolved object
-    (python, conda_inventory_sha256, pip_inventory_sha256, frameworks,
-    abi_summary).  Note: the M2-P0 golden fixtures do not pin a value
-    for this hash; this canonicalization follows contracts/README.md.
-    """
-    return sha256_hex(canonical_dumps(resolved))
-
-
-def project_slug(project: str) -> str:
-    """Normalize a project name into the env_id slug form."""
-    slug = re.sub(r"[^a-z0-9]+", "-", project.lower()).strip("-")
-    return re.sub(r"-{2,}", "-", slug) or "project"
-
-
-def env_id(project: str, fingerprint: str) -> str:
-    """Content-addressed environment id: resenv_<slug>_<fp[:12]>."""
-    return f"resenv_{project_slug(project)}_{fingerprint[:12]}"
 
 
 
@@ -301,12 +259,14 @@ def collect_environment_spec(
 def compute_resolved_inventory(env_prefix: Path) -> dict:
     """Compute the normalized installed inventory of a conda env.
 
-    Deterministic: conda explicit inventory and pip freeze run through
-    the environment's own executables; hashed canonically.  Frameworks
-    are detected from the pip inventory (torch/tensorflow/jax).
+    Probe EXECUTION is local; command shapes and all normalization/hashing
+    come from the vendored contract file (the ONE cross-repo implementation),
+    so a given physical env yields the identical fingerprint everywhere.
     """
-    import shlex
+    import shutil
     import subprocess
+    from ._vendor import env_contract_v1 as _contract
+
     prefix = Path(env_prefix)
 
     def _run(args: list[str]) -> str:
@@ -319,41 +279,31 @@ def compute_resolved_inventory(env_prefix: Path) -> dict:
         return result.stdout if result.returncode == 0 else ""
 
     python_exe = prefix / "bin" / "python"
-    conda_exe = prefix / "bin" / "conda"
     if not python_exe.exists():
         raise EnvironmentBlockedError(
             f"environment prefix does not exist: {prefix}",
             ["create the environment before computing its inventory"],
         )
 
-    python_version = _run([str(python_exe), "-c",
-                           "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"]).strip()
+    python_text = _run([str(python_exe), "--version"]).strip()
+    pip_text = _run([str(python_exe), "-m", "pip", "list", "--format=json"])
+    conda_exe = shutil.which("conda") or ""
+    conda_text = (
+        _run([conda_exe, "list", "-p", str(prefix), "--json"]) if conda_exe else ""
+    )
+    try:
+        import platform
+        libc_name, libc_version = platform.libc_ver()
+        abi = f"{libc_name}{libc_version}" if libc_name else ""
+    except Exception:
+        abi = ""
 
-    conda_out = ""
-    if conda_exe.exists():
-        conda_out = _run([str(conda_exe), "list", "--explicit"])
-
-    pip_out = _run([str(python_exe), "-m", "pip", "freeze"])
-
-    frameworks: dict = {}
-    for line in pip_out.splitlines():
-        lowered = line.lower()
-        for fw in ("torch", "tensorflow", "jax"):
-            if lowered.startswith(fw + "=="):
-                frameworks[fw] = {"version": line.split("==")[1].strip()}
-        if lowered.startswith("torch==") and "cuda" in lowered:
-            # e.g. torch==2.6.0+cu124
-            package = line.split("==")[1]
-            if "+cu" in package:
-                frameworks.setdefault("torch", {})["cuda"] = package.split("+cu")[1].strip()
-
-    return {
-        "python": python_version,
-        "conda_inventory_sha256": sha256_hex(conda_out) if conda_out else "",
-        "pip_inventory_sha256": sha256_hex(pip_out) if pip_out else "",
-        "frameworks": frameworks,
-        "abi_summary": "",
-    }
+    return _contract.build_resolved(
+        python_version=python_text,
+        pip_list_json=pip_text,
+        conda_list_json=conda_text,
+        abi_summary=abi,
+    )
 
 
 def drift_state(manifest: dict, computed_resolved_fingerprint: str) -> bool:
