@@ -40,6 +40,9 @@ class CodeTaskSpec(BaseModel):
     requires_gpu: bool = False
     accelerator_variant: str = ""
     pip_index_profile: str = ""
+    # Orchestrator-assigned project identity (slug source for env_id in
+    # content-addressed mode); repo/dir basename fallback when empty.
+    project_ref: str = ""
 
     @model_validator(mode="after")
     def _restricted_policy_requires_env(self):

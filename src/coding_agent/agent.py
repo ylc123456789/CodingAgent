@@ -301,7 +301,11 @@ def _prepare_environment(spec: CodeTaskSpec) -> dict | None:
         accelerator_variant=getattr(spec, "accelerator_variant", ""),
         pip_index_profile=getattr(spec, "pip_index_profile", ""),
     )
-    if spec.repo_url:
+    # Orchestrated runs carry the project identity explicitly (contract
+    # §4.3); standalone falls back to the repo/dir basename.
+    if getattr(spec, "project_ref", ""):
+        project = spec.project_ref
+    elif spec.repo_url:
         project = spec.repo_url.rstrip("/").split("/")[-1].replace(".git", "")
     else:
         project = spec.workspace_path.name
