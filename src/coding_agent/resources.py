@@ -765,3 +765,108 @@ def bind_existing_environment(
         )
     check_manifest_freshness(manifest, prefix)
     return manifest
+
+
+
+# ── inspect / prune (maintenance entry points) ──────────────────────────────
+
+def inspect_environments(resource_root: Path) -> list[dict]:
+    """List CodingAgent-managed environments with their state summary."""
+    root = Path(resource_root)
+    environments_dir = root / "environments"
+    if not environments_dir.exists():
+        return []
+    entries = []
+    for manifest_file in sorted(environments_dir.glob("*/manifest.json")):
+        try:
+            manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+            validate_manifest(manifest)
+        except (OSError, ValueError):
+            entries.append({
+                "env_id": manifest_file.parent.name,
+                "state": "unreadable",
+                "error": "manifest missing or invalid",
+            })
+            continue
+        if manifest.get("manager") != "codingagent":
+            continue
+        entries.append({
+            "env_id": manifest["env_id"],
+            "state": manifest["state"],
+            "certification": manifest["certification"],
+            "prefix": manifest["prefix"],
+            "pinned": manifest.get("pinned", False),
+            "last_used_at": manifest.get("last_used_at"),
+            "manager": manifest["manager"],
+        })
+    return entries
+
+
+def _active_leases(resource_root: Path) -> dict[str, dict]:
+    """Index active (unreleased, live-holder) leases by env_id."""
+    root = Path(resource_root)
+    leases_dir = root / "leases"
+    if not leases_dir.exists():
+        return {}
+    active: dict[str, dict] = {}
+    for lease_file in sorted(leases_dir.glob("*.json")):
+        try:
+            lease = json.loads(lease_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if lease.get("schema") != "RESOURCE_LEASE_V1":
+            continue
+        if lease.get("released_at"):
+            continue
+        holder_pid = lease.get("pid", 0)
+        import socket
+        if lease.get("host") == socket.gethostname() and holder_pid and not _pid_alive(holder_pid):
+            continue
+        env = lease.get("env_id", "")
+        if env:
+            active[env] = lease
+    return active
+
+
+def prune_environments(
+    resource_root: Path,
+    *,
+    min_unused_days: float = 30.0,
+    dry_run: bool = True,
+) -> list[dict]:
+    """Plan removal of CodingAgent-managed environments.
+
+    Dry-run by default and never an apply path (M2-P4 owns apply).
+    Protection: pinned manifests and envs under an active lease are
+    never candidates.  Returns a list of candidate records; nothing
+    on disk is deleted.
+    """
+    import datetime
+    root = Path(resource_root)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    leases = _active_leases(root)
+    candidates = []
+    for entry in inspect_environments(root):
+        if entry.get("state") == "unreadable":
+            continue
+        if entry["pinned"]:
+            continue
+        if entry["env_id"] in leases:
+            continue
+        last_used = entry.get("last_used_at")
+        unused_days: float | None = None
+        if last_used:
+            try:
+                parsed = datetime.datetime.fromisoformat(str(last_used).replace("Z", "+00:00"))
+                unused_days = (now - parsed).total_seconds() / 86400.0
+            except ValueError:
+                pass
+        if unused_days is None or unused_days >= min_unused_days:
+            candidates.append({
+                "env_id": entry["env_id"],
+                "prefix": entry["prefix"],
+                "state": entry["state"],
+                "unused_days": round(unused_days, 1) if unused_days is not None else None,
+                "dry_run": dry_run,
+            })
+    return candidates

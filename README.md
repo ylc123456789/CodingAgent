@@ -266,6 +266,52 @@ descriptions. ResAgent loads it through its unified registry.
 Read-only code questions are a separate capability (`codingagent_qa`)
 registered by ResAgent built-ins, not by this card.
 
+## Content-Addressed Environments (M2)
+
+Setting `CodeTaskSpec.resource_root` opts into content-addressed
+environment management (`ENVIRONMENT_SPEC_V1` /
+`ENVIRONMENT_MANIFEST_V1` contracts). Empty (default) keeps legacy
+behavior.
+
+```python
+report = run_code_task(CodeTaskSpec(
+    workspace_path="/path/to/repo",
+    output_dir="/path/to/out",
+    task_goal="...",
+    env_policy="auto",                    # create or reuse
+    resource_root="/path/to/resources",   # managed resource root
+))
+```
+
+Behavior by policy:
+
+| policy | resource_root set | resource_root empty |
+|--------|-------------------|---------------------|
+| `auto` | create or reuse a verification env by fingerprint; bind its prefix | legacy: may use/create envs freely |
+| `reuse_only` | bind existing env only; manifest + spec + drift validated | legacy: existing behavior |
+| `frozen` | drift or missing deps return `PatchReport(status="blocked")` with required actions | legacy: existing behavior |
+
+Layout under the resource root:
+
+```text
+<root>/environments/<env_id>/manifest.json   # authoritative index card
+<root>/environments/<env_id>/audits/          # ENVIRONMENT_AUDIT_V1 records
+<root>/conda-envs/<env_id>/                    # physical conda prefixes
+<root>/locks/<spec_fingerprint>.lock           # per-fingerprint creation locks
+```
+
+CodingAgent only ever writes `certification: verification`; the
+`experiment` level belongs to reproagent. Maintenance entry points:
+
+```python
+from coding_agent.resources import inspect_environments, prune_environments
+
+inspect_environments("/path/to/resources")        # list managed envs
+prune_environments("/path/to/resources", min_unused_days=30)  # plan only, dry-run
+```
+
+Pruning is always a dry-run plan; it never deletes anything.
+
 ## Environment Policy
 
 | Policy | May create/delete envs | May install packages | Heavy frameworks |
