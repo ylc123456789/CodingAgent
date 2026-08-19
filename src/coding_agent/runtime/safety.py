@@ -19,7 +19,6 @@ BLOCKED_PATH_PARTS = {
     "datasets",
     "checkpoints",
     "weights",
-    "models",
 }
 
 BLOCKED_SUFFIXES = {
