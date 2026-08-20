@@ -295,11 +295,18 @@ def _prepare_environment(spec: CodeTaskSpec) -> dict | None:
     )
 
     root = _Path(spec.resource_root)
+    mirror = getattr(spec, "mirror_profile", "") or ""
+    # mirror_profile (ReproAgent naming) feeds pip_index_profile when the
+    # contract field is unset; "" and "none" mean no mirror, exactly like
+    # reproagent's env_identity mapping.
+    pip_profile = getattr(spec, "pip_index_profile", "") or (
+        "" if mirror in ("", "none") else mirror
+    )
     spec_doc = collect_environment_spec(
         spec.workspace_path,
         requires_gpu=getattr(spec, "requires_gpu", False),
         accelerator_variant=getattr(spec, "accelerator_variant", ""),
-        pip_index_profile=getattr(spec, "pip_index_profile", ""),
+        pip_index_profile=pip_profile,
     )
     # Orchestrated runs carry the project identity explicitly (contract
     # §4.3); standalone falls back to the repo/dir basename.

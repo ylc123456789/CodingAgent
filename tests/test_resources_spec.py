@@ -119,3 +119,35 @@ def test_dependency_files_sorted(tmp_path):
     assert paths == sorted(paths)
     assert "requirements.txt" in paths
     assert "sub/requirements-dev.txt" in paths
+
+
+def test_mirror_profile_maps_to_pip_index_profile(tmp_path, monkeypatch):
+    """mirror_profile feeds pip_index_profile in spec collection (parity)."""
+    from coding_agent.agent import _prepare_environment
+
+    captured = {}
+
+    def fake_collect(workspace, python_version="", requires_gpu=False,
+                     accelerator_variant="", pip_index_profile=""):
+        captured["pip"] = pip_index_profile
+        return {"schema": "ENVIRONMENT_SPEC_V1", "python": "3.11",
+                "os": "linux", "arch": "x86_64",
+                "accelerator": {"type": "cpu", "variant": ""},
+                "dependency_files": [], "channels": [],
+                "pip_index_profile": pip_index_profile,
+                "framework_constraints": [], "notes": ""}
+
+    from coding_agent import CodeTaskSpec
+    spec = CodeTaskSpec(
+        workspace_path=tmp_path, output_dir=tmp_path / "out", task_goal="x",
+        resource_root=str(tmp_path / "resources"),
+        mirror_profile="cn", env_policy="auto",
+    )
+    monkeypatch.setattr("coding_agent.resources.collect_environment_spec", fake_collect)
+    monkeypatch.setattr("coding_agent.resources.create_or_reuse_environment",
+                        lambda *a, **k: {"env_id": "e", "prefix": "/p",
+                                         "spec_fingerprint": "0"*64,
+                                         "resolved_fingerprint": "1"*64,
+                                         "certification": "verification"})
+    _prepare_environment(spec)
+    assert captured["pip"] == "cn"
