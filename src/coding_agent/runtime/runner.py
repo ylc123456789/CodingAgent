@@ -102,8 +102,11 @@ def run_verify_commands(
         except subprocess.TimeoutExpired as exc:
             timed_out = True
             returncode = 124
-            stdout = exc.stdout or ""
-            stderr = exc.stderr or ""
+            # TimeoutExpired.stdout/stderr are raw bytes even with text=True
+            # (the exception is raised before text decoding); decode them so
+            # write_text below never receives bytes.
+            stdout = (exc.stdout or b"").decode("utf-8", errors="replace")
+            stderr = (exc.stderr or b"").decode("utf-8", errors="replace")
         duration = time.monotonic() - start
         stdout_path.write_text(stdout, encoding="utf-8")
         stderr_path.write_text(stderr, encoding="utf-8")
