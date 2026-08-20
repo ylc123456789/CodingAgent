@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -52,7 +53,7 @@ def main() -> None:
         raise RuntimeError("malformed patch unexpectedly applied")
 
     changed = apply_repaired_edit(spec, repaired)
-    verified = subprocess.run(["python", "train.py"], cwd=repo, text=True, capture_output=True, check=False)
+    verified = subprocess.run([sys.executable, "train.py"], cwd=repo, text=True, capture_output=True, check=False)
     print(f"repo={repo}")
     print(f"changed_files={changed}")
     print(f"repair_action={repaired.action}")
@@ -75,6 +76,11 @@ def apply_repaired_edit(spec: CodeTaskSpec, repaired) -> list[str]:
         return [insert_before_anchor(spec.workspace_path, repaired.path or "", repaired.anchor_text or "", repaired.insert_text or "", spec.allowed_paths)]
     if repaired.action == "insert_after":
         return [insert_after_anchor(spec.workspace_path, repaired.path or "", repaired.anchor_text or "", repaired.insert_text or "", spec.allowed_paths)]
+    if repaired.action == "write_file":
+        target = spec.workspace_path / (repaired.path or "")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(repaired.content or "", encoding="utf-8")
+        return [repaired.path]
     raise RuntimeError(f"unsupported repair action: {repaired.action}")
 
 

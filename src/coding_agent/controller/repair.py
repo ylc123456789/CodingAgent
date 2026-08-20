@@ -14,9 +14,10 @@ from ..runtime.safety import SafetyError, ensure_path_allowed
 
 class PatchRepairResponse(BaseModel):
     """Structured response returned by patch repair prompts."""
-    action: str = "apply_patch"
+    action: str = "replace_text"
     patch: str | None = None
     path: str | None = None
+    content: str | None = None
     old_text: str | None = None
     new_text: str | None = None
     anchor_text: str | None = None
@@ -182,21 +183,37 @@ def repair_patch(
     attempt: int,
     client: LLMClient,
 ) -> PatchRepairResponse:
-    """Ask the model to repair a failed patch."""
+    """Ask the model to repair a failed patch.
+
+    The repair schema deliberately excludes apply_patch: line-number
+    based unified diffs are the failure mode being repaired.  Small
+    edits must use exact-text anchors; anything larger must rewrite
+    the whole file with write_file.
+    """
     paths = extract_patch_paths(failed_patch)
     file_context = []
     for rel in paths[:6]:
         try:
             path = ensure_path_allowed(spec.workspace_path, rel, spec.allowed_paths or None)
-            file_context.append({"path": rel, "text": path.read_text(encoding="utf-8", errors="ignore")[:24_000]})
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            truncated = len(text) > 60_000
+            file_context.append({
+                "path": rel,
+                "text": text[:60_000],
+                "truncated": truncated,
+            })
         except Exception as exc:
             file_context.append({"path": rel, "error": str(exc)})
     _save_repair_context(output_dir, step, attempt, file_context)
 
     system = (
-        "You repair failed edits for a coding agent. Prefer structured edit actions over another unified diff. "
-        "For a small local edit, return action replace_text, insert_before, or insert_after with exact text copied from "
-        "current_file_context. Use apply_patch only when a structured edit is unsuitable. Return only JSON."
+        "You repair failed edits for a coding agent. Never return a unified diff: "
+        "line numbers in diff hunks are the failure you are repairing. "
+        "For a small local edit, return replace_text, insert_before, or insert_after "
+        "with exact text copied from current_file_context. For a large or messy edit, "
+        "return write_file with the complete corrected file content. "
+        "If a file entry is marked truncated, do NOT use write_file for that path "
+        "(you only have part of the file); use exact-text edits instead. Return only JSON."
     )
     user = {
         "task_goal": spec.task_goal,
@@ -206,18 +223,23 @@ def repair_patch(
         "failed_patch": failed_patch,
         "current_file_context": file_context,
         "schema": {
-            "action": "replace_text|insert_before|insert_after|apply_patch",
-            "path": "relative path for structured edit",
+            "action": "replace_text|insert_before|insert_after|write_file",
+            "path": "relative path for the file being repaired",
             "old_text": "exact old text for replace_text",
             "new_text": "replacement text for replace_text",
             "anchor_text": "exact anchor text for insert_before/insert_after",
             "insert_text": "text to insert for insert_before/insert_after",
             "occurrence_index": "optional 1-based index when a repeated anchor is intentional",
-            "patch": "valid unified diff only if action is apply_patch",
+            "content": "complete corrected file content, only for write_file",
             "notes": ["repair note"],
         },
     }
     response = PatchRepairResponse.model_validate(client.complete_json(system, json.dumps(user, indent=2)))
+    if response.action == "apply_patch":
+        raise PatchApplyError(
+            "patch repair returned apply_patch, which is forbidden in repair "
+            "responses (line-number based diffs are the failure being repaired)"
+        )
     _save_repair_response(output_dir, step, attempt, response)
     return response
 

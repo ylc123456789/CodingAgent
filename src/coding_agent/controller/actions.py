@@ -305,7 +305,13 @@ def _apply_patch_with_repair(
     step: int,
     client: LLMClient,
 ) -> tuple[list[str], str]:
-    """Apply a patch, repairing it when possible."""
+    """Apply a patch, repairing it when possible.
+
+    Repair never produces another unified diff: the LLM must return an
+    exact-text structured edit or a full-file rewrite (write_file).
+    Repair-side failures count as failed attempts and continue the
+    loop until patch_repair_attempts is exhausted.
+    """
     patch = normalize_patch_text(patch_text)
     errors: list[str] = []
     repair_notes: list[str] = []
@@ -329,28 +335,71 @@ def _apply_patch_with_repair(
                     f"patch failed validation/application after {spec.patch_repair_attempts} repair attempt(s):\n{joined}",
                     joined,
                 ) from exc
-            repaired = repair_patch(spec, patch, stderr, output_dir, step, attempt, client)
-            repair_notes.extend(repaired.notes)
-            if repaired.action in {"replace_text", "insert_before", "insert_after"}:
-                action = ControllerAction(
-                    action=repaired.action,
-                    reasoning="Repair failed unified diff by using a deterministic structured edit.",
-                    path=repaired.path,
-                    old_text=repaired.old_text,
-                    new_text=repaired.new_text,
-                    anchor_text=repaired.anchor_text,
-                    insert_text=repaired.insert_text,
-                    occurrence_index=repaired.occurrence_index,
+            try:
+                changed, observation = _apply_patch_repair(
+                    spec, patch, stderr, output_dir, step, attempt, client, repair_notes
                 )
-                changed, observation = _execute_structured_edit(spec, action, output_dir)
-                notes = f" Repair notes: {'; '.join(repair_notes)}" if repair_notes else ""
-                return changed, f"Patch converted to structured edit after {attempt} failed diff attempt(s). {observation}{notes}"
-            if repaired.action != "apply_patch" or not repaired.patch:
-                raise PatchApplyError(f"patch repair returned unsupported action or empty patch: {repaired.action}")
-            patch = normalize_patch_text(repaired.patch)
+                return changed, observation
+            except (PatchApplyError, StructuredEditError, SafetyError, ValueError) as repair_exc:
+                errors.append(str(repair_exc))
+                continue
 
     raise PatchApplyError("patch repair loop exited unexpectedly")
 
+
+def _apply_patch_repair(
+    spec: CodeTaskSpec,
+    patch: str,
+    stderr: str,
+    output_dir: Path,
+    step: int,
+    attempt: int,
+    client: LLMClient,
+    repair_notes: list[str],
+) -> tuple[list[str], str]:
+    """One repair round: LLM chooses a line-number-free edit, then apply it."""
+    repaired = repair_patch(spec, patch, stderr, output_dir, step, attempt, client)
+    repair_notes.extend(repaired.notes)
+    notes = f" Repair notes: {'; '.join(repair_notes)}" if repair_notes else ""
+
+    if repaired.action in {"replace_text", "insert_before", "insert_after"}:
+        action = ControllerAction(
+            action=repaired.action,
+            reasoning="Repair failed unified diff by using a deterministic structured edit.",
+            path=repaired.path,
+            old_text=repaired.old_text,
+            new_text=repaired.new_text,
+            anchor_text=repaired.anchor_text,
+            insert_text=repaired.insert_text,
+            occurrence_index=repaired.occurrence_index,
+        )
+        # route through the structured-edit repair path so a failed
+        # anchor gets its own focused repair before this round fails
+        changed, observation = _execute_structured_edit_with_repair(
+            spec, action, output_dir, step, client
+        )
+        return changed, (
+            f"Patch converted to structured edit after {attempt} failed diff "
+            f"attempt(s). {observation}{notes}"
+        )
+
+    if repaired.action == "write_file":
+        if not repaired.path or repaired.content is None:
+            raise PatchApplyError("write_file repair requires path and content")
+        file_path = ensure_path_allowed(
+            spec.workspace_path, repaired.path, spec.allowed_paths or None
+        )
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(repaired.content, encoding="utf-8")
+        diff_path = write_diff(current_diff(spec.workspace_path), output_dir)
+        syntax_note = _check_syntax_after_edit(spec.workspace_path, repaired.path)
+        return [repaired.path], (
+            f"Patch replaced by full-file rewrite of {repaired.path} after "
+            f"{attempt} failed diff attempt(s). Current diff written to "
+            f"{diff_path}.{syntax_note}{notes}"
+        )
+
+    raise PatchApplyError(f"patch repair returned unsupported action: {repaired.action}")
 
 def _search_repo(repo: Path, query: str, limit: int = 80) -> str:
     """Search safe text files for a query string."""
