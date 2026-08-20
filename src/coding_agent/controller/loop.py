@@ -25,6 +25,20 @@ def run_step_controller(spec: CodeTaskSpec, resume_state: AgentState | None = No
         state.task = spec
     else:
         state = AgentState(task=spec)
+        # Bridge hardcoded dataset roots to the shared cache before the loop
+        # (mirrors ReproAgent): the LLM cannot do this itself and relative-path
+        # reasoning is where it fails. Best-effort, never fatal.
+        if spec.dataset_cache_dir:
+            try:
+                from ..runtime.dataset_cache import prepare_dataset_links
+                state.dataset_links = prepare_dataset_links(
+                    repo_path=spec.workspace_path,
+                    workspace_dir=spec.workspace_path.parent,
+                    cache_root=spec.dataset_cache_dir,
+                    allowed_write_root=spec.workspace_path,
+                )
+            except Exception:
+                state.dataset_links = []
     policy = resolve_context_policy(spec)
     context = _build_context(spec, policy)
     write_initial_diff(context.initial_diff, output_dir)

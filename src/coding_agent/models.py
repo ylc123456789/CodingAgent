@@ -40,6 +40,8 @@ class CodeTaskSpec(BaseModel):
     requires_gpu: bool = False
     accelerator_variant: str = ""
     pip_index_profile: str = ""
+    dataset_cache_dir: str = ""
+    mirror_profile: str = ""
     # Orchestrator-assigned project identity (slug source for env_id in
     # content-addressed mode); repo/dir basename fallback when empty.
     project_ref: str = ""
@@ -252,4 +254,5 @@ class AgentState(BaseModel):
     task: CodeTaskSpec
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     steps: list[StepRecord] = Field(default_factory=list)
+    dataset_links: list[dict] = Field(default_factory=list)
     report: PatchReport | None = None

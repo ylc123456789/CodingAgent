@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from ..runtime.apply import current_diff
+from ..runtime.dataset_cache import render_dataset_block
 from ..context.policy import ContextPolicy, resolve_context_policy
 from ..llm import LLMClient
 from ..models import AgentState, CodeTaskSpec, ControllerAction, StepRecord
@@ -85,6 +86,24 @@ def _env_policy_guidance(spec) -> str:
     )
 
 
+def _mirror_block(spec: CodeTaskSpec) -> str:
+    """Render the mirror policy block with profile-specific guidance."""
+    profile = spec.mirror_profile
+    if not profile or profile == "none":
+        return "Mirror policy: none."
+    lines = [
+        f"Mirror policy: {profile}.",
+        "For pip: use -i https://mirrors.aliyun.com/pypi/simple",
+        "Avoid --index-url https://download.pytorch.org/whl/ — overrides domestic mirrors.",
+    ]
+    if profile == "autodl":
+        lines.append(
+            "Prefer plain pip pins (torch==2.6.0 torchvision==0.21.0). Only use "
+            "-f aliyun pytorch-wheels for +cuXXX wheels."
+        )
+    return "\n".join(lines)
+
+
 def choose_next_action(spec: CodeTaskSpec, state: AgentState, context, client: LLMClient) -> ControllerAction:
     """Ask the model to choose the next controller action."""
     policy = resolve_context_policy(spec)
@@ -105,11 +124,14 @@ def choose_next_action(spec: CodeTaskSpec, state: AgentState, context, client: L
         "When nesting is deep, include the parent construct opening line in the anchor. "
         "Return only JSON matching the schema."
     )
+    if not is_qa:
+        system += "\n\n" + _mirror_block(spec)
     user = {
         "task_goal": spec.task_goal,
         "constraints": spec.constraints,
         "verify_commands": spec.verify_commands,
         "env_guidance": _env_policy_guidance(spec),
+        "dataset_cache": render_dataset_block(spec, spec.workspace_path, state.dataset_links),
         "allowed_paths": spec.allowed_paths,
         "context_budget": {
             "context_window_tokens": policy.context_window_tokens,

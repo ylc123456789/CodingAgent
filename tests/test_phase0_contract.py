@@ -44,6 +44,7 @@ def test_public_model_field_contracts() -> None:
         "read_only", "session_id", "parent_run", "output_dir",
         "repo_url", "branch", "env_policy", "env_name", "resource_root",
         "requires_gpu", "accelerator_variant", "pip_index_profile",
+        "dataset_cache_dir", "mirror_profile",
         "project_ref",
     ]
     assert list(CodeQuestionSpec.model_fields) == [
@@ -53,7 +54,7 @@ def test_public_model_field_contracts() -> None:
         "model_context_window_tokens", "context_margin_ratio",
         "context_output_reserve_tokens",
     ]
-    assert list(AgentState.model_fields) == ["task", "started_at", "steps", "report"]
+    assert list(AgentState.model_fields) == ["task", "started_at", "steps", "dataset_links", "report"]
     assert list(PatchReport.model_fields) == [
         "status", "changed_files", "diff_path", "verification_results", "summary",
         "produced_files", "residual_risks",
