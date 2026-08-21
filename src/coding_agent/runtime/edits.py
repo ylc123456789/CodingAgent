@@ -21,6 +21,11 @@ def replace_text_once(
 ) -> str:
     """Replace exact text after resolving a safe single match."""
     path = ensure_path_allowed(repo_root, relative_path, allowed_paths)
+    if not path.exists():
+        raise StructuredEditError(
+            f"replace_text target does not exist: {relative_path}; "
+            "use write_file to create it"
+        )
     text = path.read_text(encoding="utf-8", errors="ignore")
     index = _resolve_match_index(text, old_text, relative_path, "replace_text", occurrence_index)
     updated = text[:index] + new_text + text[index + len(old_text) :]
@@ -79,6 +84,12 @@ def _insert_at_anchor(
 ) -> str:
     """Insert text around a resolved anchor location."""
     path = ensure_path_allowed(repo_root, relative_path, allowed_paths)
+    if not path.exists():
+        action = "insert_before" if before else "insert_after"
+        raise StructuredEditError(
+            f"{action} target does not exist: {relative_path}; "
+            "use write_file to create it"
+        )
     text = path.read_text(encoding="utf-8", errors="ignore")
     action = "insert_before" if before else "insert_after"
     index = _resolve_match_index(text, anchor_text, relative_path, action, occurrence_index)

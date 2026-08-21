@@ -209,6 +209,14 @@ def _read_file_observation(spec: CodeTaskSpec, action: ControllerAction) -> str:
     if not action.path:
         raise ValueError("read_file requires path")
     path = ensure_path_allowed(spec.workspace_path, action.path, spec.allowed_paths or None)
+    if not path.exists():
+        # A safe-but-missing path is a recoverable observation, not a
+        # crash: the workspace may simply be empty and the file must be
+        # created with write_file.  Safety violations still raise above.
+        return (
+            f"File {action.path} does not exist. The workspace may be empty. "
+            "Use write_file to create it, or list_tree/search to find the correct path."
+        )
     text = path.read_text(encoding="utf-8", errors="ignore")
     if action.start_line is not None or action.end_line is not None:
         return _slice_lines(text, action.start_line, action.end_line)
