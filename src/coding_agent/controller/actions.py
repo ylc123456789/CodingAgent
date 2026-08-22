@@ -170,22 +170,32 @@ def _run_missing_finish_verification(
     output_dir: Path,
     finish_step: int,
 ):
-    """Run verification when finish follows unverified edits.
+    """Run declared verify_commands that have not run since the last edit.
 
-    Uses the same environment binding as the run_command action: verify
-    commands execute inside spec.env_name under spec.env_policy.
+    Only the task's declared verify_commands count as verification: an
+    unrelated run_command (e.g. `python --version`) does not satisfy
+    them, so any declared command that has not run at or after the last
+    file change still runs before finish.  Uses the same environment
+    binding as the run_command action: commands execute inside
+    spec.env_name under spec.env_policy.
     """
     if not spec.verify_commands:
         return []
     last_change_step = max((step.step for step in steps if step.changed_files), default=0)
     if last_change_step == 0:
         return []
-    last_verify_step = max((step.step for step in steps if step.verification_results), default=0)
-    if last_verify_step >= last_change_step:
+    covered = {
+        result.command
+        for step in steps
+        if step.step >= last_change_step
+        for result in step.verification_results
+    }
+    missing = [command for command in spec.verify_commands if command not in covered]
+    if not missing:
         return []
     return run_verify_commands(
         spec.workspace_path,
-        spec.verify_commands,
+        missing,
         output_dir / "logs" / f"step_{finish_step:02d}_finish_verify",
         spec.timeout_seconds,
         spec.env_name,
