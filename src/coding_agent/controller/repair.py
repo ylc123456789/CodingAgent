@@ -13,9 +13,12 @@ from ..models import CodeTaskSpec, ControllerAction
 from ..runtime.safety import ensure_path_allowed
 
 class PatchRepairResponse(BaseModel):
-    """Structured response returned by patch repair prompts."""
+    """Structured response returned by patch repair prompts.
+
+    There is deliberately no patch field: repair responses may only be
+    structured edits or a write_file rewrite, never another unified diff.
+    """
     action: str = "replace_text"
-    patch: str | None = None
     path: str | None = None
     content: str | None = None
     old_text: str | None = None
