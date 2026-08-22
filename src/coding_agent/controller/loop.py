@@ -36,7 +36,10 @@ def run_step_controller(spec: CodeTaskSpec, resume_state: AgentState | None = No
                 state.dataset_links = []
     policy = resolve_context_policy(spec)
     context = _build_context(spec, policy)
-    write_initial_diff(context.initial_diff, output_dir)
+    # The baseline diff is first-run evidence only; a resumed run must
+    # keep the original initial_diff.patch untouched.
+    if resume_state is None:
+        write_initial_diff(context.initial_diff, output_dir)
     client = LLMClient(api_base=spec.api_base, api_key_env=spec.api_key_env, model=spec.model)
 
     changed_files: list[str] = []
