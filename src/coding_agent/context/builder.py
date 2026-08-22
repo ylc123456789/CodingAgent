@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from ..models import CodeTaskSpec, FileSnippet, RepoContext
+from ..runtime.apply import current_diff
 from ..runtime.safety import BLOCKED_PATH_PARTS, BLOCKED_SUFFIXES
 
 TEXT_SUFFIXES = {
@@ -96,14 +97,6 @@ def _is_blocked(rel: str) -> bool:
 def _git_diff(repo: Path) -> str:
     """Return git diff output, or empty text on failure."""
     try:
-        result = subprocess.run(
-            ["git", "diff", "--no-ext-diff"],
-            cwd=repo,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=30,
-        )
+        return current_diff(repo, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         return ""
-    return result.stdout

@@ -92,7 +92,7 @@ def apply_patch_text(repo_root: Path, patch_text: str, allowed_paths: list[str] 
     return changed_paths
 
 
-def current_diff(repo_root: Path) -> str:
+def current_diff(repo_root: Path, timeout: float | None = None) -> str:
     """Return the current git diff for a repository."""
     result = subprocess.run(
         ["git", "diff", "--no-ext-diff"],
@@ -100,5 +100,6 @@ def current_diff(repo_root: Path) -> str:
         text=True,
         capture_output=True,
         check=False,
+        timeout=timeout,
     )
     return result.stdout
