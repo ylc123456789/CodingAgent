@@ -65,11 +65,33 @@ run_code_task / run_code_question / resume_code_task
 - 测试：`tests/test_reviewer.py` 修正锁定旧行为的断言并补无验证保持 completed 的回归；`tests/test_finish_semantics.py` 四例（自动验证失败降级 / 显式验证失败降级 / 无验证保持 completed / 通过保持 completed）。
 - 提交：`7e15c3d`（含 README 状态语义同步）
 
+## 3.5 C3 修订：验证窗口语义（同日追加）
+
+C3 的首版实现被真实场景反馈否决（"CodingAgent 会被历史失败永久污染"）：
+
+- 根因 1（历史污染）：状态判定扫描整个 run 累积的 `verification_results`，失败→修复→重跑通过→finish 的典型流程仍被判 failed——而失败后修复正是编程 Agent 的正常工作方式。
+- 根因 2（无关命令冒充验证）：任意 `run_command` 都算"已验证"，修改后只跑 `python --version` 会让系统跳过任务声明的 `verify_commands`。
+
+统一修订为窗口语义（提交 `fd28477`、`f9f40a1`）：
+
+1. **判定窗口**：`loop.py::_verification_after_last_change` —— 只取"最后一次文件修改之后"的验证结果，窗口内按命令去重、**最新一次为准**。历史失败保留在 state.json 证据里，不参与状态判定。finish 分支与预算耗尽分支（经 `review_outcome(effective_results=...)`，报告仍携带全量证据）统一使用该窗口。
+2. **声明命令门槛**：`actions.py::_run_missing_finish_verification` —— 只有 `spec.verify_commands` 精确匹配且发生在最后修改之后才视为"已覆盖"；未覆盖的声明命令在 finish 前自动补跑（只补跑缺失的，不重跑已覆盖的）。
+
+回归测试（对应用户报告的四个场景）：
+
+| 场景 | 测试 |
+|---|---|
+| 失败→修改→测试通过→finish = completed | `test_failed_then_fixed_same_command_reports_completed`（同一命令先失败后通过，且断言不触发第三次运行） |
+| 失败→未修复 = failed | `test_failed_explicit_verification_downgrades_completed`（既有） |
+| 修改后只跑无关命令 → 仍自动执行 verify_commands | `test_unrelated_command_still_triggers_declared_verification` |
+| 多条最终验证任一失败 = failed | `test_any_failed_final_verification_reports_failed` |
+| reviewer 层窗口判定 + 全量证据保留 | `test_review_outcome_uses_effective_window` |
+
 ## 4. 测试结果
 
 | 项目 | 结果 |
 |---|---|
-| 全量单元测试 | **183/183 通过**（整理前 172；新增 reviewer 4 + C1 2 + C2 1 + C3 4） |
+| 全量单元测试 | **187/187 通过**（整理前 172；reviewer 5 + C1/C2/C3 及修订回归共 10） |
 | 契约锁 | `test_phase0_contract.py` 通过——`__all__`、QA_SYSTEM/ACTION_SCHEMA/QA_ACTION_SCHEMA 哈希、公共模型字段列表未变 |
 | vendored 契约 | `test_vendor_contract.py` 通过（sha256 字节一致） |
 | 公共入口导入 | 全部公共 + 内部入口导入正常；`typing.get_type_hints` 可解析 |
@@ -87,13 +109,14 @@ run_code_task / run_code_question / resume_code_task
 | `_git_head`(resources) / `_git_info`(session) 双助手 | 低 | 保留：字段需求不同，合并需新共享模块，违反"不为 2 个调用点建抽象" |
 | `CodeQuestionSpec` 与 `CodeTaskSpec` 调优字段重复 | 低 | 保留：合并将改变公共模型构造，被 Phase-0 契约锁禁止 |
 | `write_file` 修复路径与主 `write_file` 动作的分支相似性 | 低 | 保留：修复路径有截断保护等差异语义，合并会引入行为风险 |
+| [中] ResAgent step 恢复语义不完整（总体审查发现） | 中 | **跨模块，不在本仓处理**：属 ResAgent 仓库范围，本会话按纪律不修改其他模块仓库，应由 ResAgent 会话认领 |
 
 ## 6. 验收对照（任务单）
 
-- 全量测试通过 ✅（183/183）
+- 全量测试通过 ✅（187/187）
 - 自动验证在任务指定环境执行 ✅（C1 + 测试断言绑定传递；包装逻辑原在 `run_verify_commands` 单一位置）
 - resume 后 `initial_diff.patch` 内容不变 ✅（C2 + 端到端测试）
-- 验证失败时最终状态不是 completed ✅（C3 + controller/reviewer 两层测试）
+- 验证失败时最终状态不是 completed，且失败→修复→通过不再被历史污染 ✅（C3 + 窗口语义修订，controller/reviewer 两层测试）
 - 未修改公共 Prompt、模型契约和依赖 ✅（契约锁测试通过；pyproject/agent.yaml 零 diff）
-- 工作区干净、按主题提交 ✅（12 个主题提交）
+- 工作区干净、按主题提交 ✅（14 个主题提交）
 - 分支已推送、未合并 main ✅

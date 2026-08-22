@@ -142,7 +142,7 @@ api_key_env=DEEPSEEK_API_KEY
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `status` | `str` | `"completed"`, `"failed"`, `"blocked"`, or `"needs_user_input"`. A verification command that actually ran and failed downgrades a requested `"completed"` to `"failed"`; otherwise the agent's finish status is authoritative. |
+| `status` | `str` | `"completed"`, `"failed"`, `"blocked"`, or `"needs_user_input"`. Only verification recorded at or after the last file change counts, and the latest run of each command wins; a failure in that window downgrades a requested `"completed"` to `"failed"`. Otherwise the agent's finish status is authoritative. |
 | `changed_files` | `list[str]` | Paths modified during the run. |
 | `diff_path` | `Path\|None` | Path to `diff.patch`. |
 | `verification_results` | `list[CommandResult]` | Exit code and log paths per verification command. |
@@ -222,8 +222,8 @@ print(result.evidence_files) # paths inspected during the question
 - Malformed patches are saved as `logs/failed_patch_<step>_<attempt>.patch` with matching stderr artifacts.
 - Patch repair never returns another unified diff: it returns a structured edit (`replace_text` / `insert_before` / `insert_after`) or a full-file `write_file` rewrite.
 - `ControllerAction.reasoning` is optional so minor model schema omissions do not fail an otherwise valid run.
-- The agent's explicit `finish` status is authoritative, except that a verification command that actually ran and failed downgrades a requested `completed` to `failed`.
-- If files changed after the last verification, the controller auto-runs `verify_commands` before accepting `finish`.
+- The agent's explicit `finish` status is authoritative, except that a verification command that failed at or after the last file change downgrades a requested `completed` to `failed` (the latest run of each command counts; earlier history never decides).
+- If the declared `verify_commands` have not run since the last file change, the controller auto-runs the missing ones before accepting `finish`; an unrelated `run_command` does not count as verification.
 
 ## Run Artifacts
 
