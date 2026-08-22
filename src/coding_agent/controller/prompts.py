@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from ..runtime.apply import current_diff
 from ..runtime.dataset_cache import render_dataset_block

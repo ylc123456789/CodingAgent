@@ -1,12 +1,11 @@
 """Execute controller actions with repair support."""
 from __future__ import annotations
 
-import json
 import subprocess
 import sys
 from pathlib import Path
 
-from ..runtime.apply import PatchApplyError, apply_patch_text, current_diff, extract_patch_paths, normalize_patch_text
+from ..runtime.apply import PatchApplyError, apply_patch_text, current_diff, normalize_patch_text
 from ..context.builder import TEXT_SUFFIXES, build_repo_context
 from ..context.policy import resolve_context_policy
 from ..runtime.edits import StructuredEditError, find_all, insert_after_anchor, insert_before_anchor, replace_text_once

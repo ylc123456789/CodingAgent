@@ -1,11 +1,6 @@
 """Run the step-based coding agent controller main loop."""
 from __future__ import annotations
 
-import json
-import subprocess
-import sys
-from pathlib import Path
-
 from ..runtime.apply import current_diff
 from ..context.builder import build_repo_context
 from ..context.policy import resolve_context_policy

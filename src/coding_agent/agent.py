@@ -90,7 +90,6 @@ def run_code_question(spec):
     and reuses the step controller.  The result is a CodeExplanation
     (answer + evidence) instead of a PatchReport.
     """
-    from .controller.loop import run_step_controller
     from .models import CodeTaskSpec, CodeExplanation
 
     task_spec = CodeTaskSpec(
@@ -201,7 +200,6 @@ def resume_code_task(output_dir, instruction, **overrides):
 def _run_code_task_resume(spec, output_dir):
     """Run a coding task, appending steps to existing state."""
     import json
-    from .controller.loop import run_step_controller
     from .models import AgentState
 
     old_state = None

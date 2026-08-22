@@ -13,7 +13,7 @@ DIFF_PATH_RE = re.compile(r"^(?:---|\+\+\+) (?:a/|b/)?(.+)$")
 class PatchApplyError(RuntimeError):
     """Raised when a patch fails validation or application."""
     def __init__(self, message: str, stderr: str = "") -> None:
-        """Handle   init  ."""
+        """Initialize with a message and optional raw stderr."""
         super().__init__(message)
         self.stderr = stderr
 
