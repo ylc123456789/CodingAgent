@@ -61,3 +61,19 @@ def test_missing_verification_keeps_completed_with_note(tmp_path):
     # historical completed-with-note behavior.
     assert report.status == "completed"
     assert any("No verification commands" in risk for risk in report.residual_risks)
+
+
+def test_review_outcome_uses_effective_window(tmp_path):
+    """A historical failure before the last change does not decide the
+    outcome when the effective window passed, and the report keeps the
+    full evidence list."""
+    historical_failure = _cmd(tmp_path, returncode=1)
+    final_pass = _cmd(tmp_path)
+    report = review_outcome(
+        _spec(tmp_path), ["train.py"], tmp_path / "diff.patch",
+        [historical_failure, final_pass],
+        effective_results=[final_pass],
+    )
+    assert report.status == "completed"
+    # full evidence is still reported
+    assert len(report.verification_results) == 2

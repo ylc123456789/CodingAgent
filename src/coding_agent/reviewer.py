@@ -10,13 +10,15 @@ def review_outcome(
     diff_path,
     verification_results: list[CommandResult],
     residual_risks: list[str] | None = None,
+    effective_results: list[CommandResult] | None = None,
 ) -> PatchReport:
     """Review changes and verification into a report.
 
-    Deterministic evidence rules the outcome: a verification command
-    that actually ran and failed makes the status "failed", never
-    "completed".  Runs without any verification keep the historical
-    behavior (completed with a note).
+    Deterministic evidence rules the outcome: a failed verification in
+    the effective window (passed via effective_results; the full list
+    when omitted) makes the status "failed", never "completed".  The
+    report always carries the full evidence list.  Runs without any
+    verification keep the historical behavior (completed with a note).
     """
     residual = list(residual_risks or [])
     if not changed_files:
@@ -28,7 +30,8 @@ def review_outcome(
             summary="No files were changed.",
             residual_risks=residual,
         )
-    failed_verifications = [r for r in verification_results if not r.succeeded]
+    decision_results = effective_results if effective_results is not None else verification_results
+    failed_verifications = [r for r in decision_results if not r.succeeded]
     if failed_verifications:
         residual.append(
             f"{len(failed_verifications)} verification command(s) returned non-zero: "

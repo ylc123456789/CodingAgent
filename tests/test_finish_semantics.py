@@ -90,3 +90,58 @@ def test_finish_with_passing_verification_stays_completed(tmp_path, monkeypatch)
         [{"action": "run_command", "reasoning": "verify", "command": "python train.py"}],
     )
     assert report.status == "completed"
+
+
+def test_failed_then_fixed_same_command_reports_completed(tmp_path, monkeypatch):
+    """History never decides the final status: the declared check fails,
+    the agent fixes the code, re-runs the same check successfully, and
+    the final status must be completed (latest run wins, no extra auto-run)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "train.py").write_text("print('accuracy 0.5')\n")
+    (repo / "check.py").write_text(
+        "import pathlib, sys\n"
+        "sys.exit(0 if 'loss' in pathlib.Path('train.py').read_text() else 1)\n"
+    )
+    _init_repo(repo)
+    out = tmp_path / "out"
+
+    actions = [
+        {"action": "run_command", "reasoning": "run the check before editing",
+         "command": "python check.py"},
+        {"action": "insert_after", "reasoning": "fix the check",
+         "path": "train.py",
+         "anchor_text": "print('accuracy 0.5')\n",
+         "insert_text": "print('loss 1.0')\n"},
+        {"action": "run_command", "reasoning": "re-run the same check",
+         "command": "python check.py"},
+        {"action": "finish", "status": "completed", "summary": "fixed and verified"},
+    ]
+    monkeypatch.setattr("coding_agent.controller.loop.LLMClient", _make_client(actions))
+    report = run_code_task(
+        CodeTaskSpec(
+            workspace_path=repo, output_dir=out, task_goal="add loss",
+            verify_commands=["python check.py"], max_steps=8,
+        )
+    )
+
+    assert report.status == "completed"
+    # Exactly the two agent runs of the declared command; the historical
+    # failure stays in the evidence but does not trigger a third run.
+    assert [r.command for r in report.verification_results] == ["python check.py", "python check.py"]
+
+
+def test_any_failed_final_verification_reports_failed(tmp_path, monkeypatch):
+    """Among multiple verifications after the last change, any failure
+    makes the final status failed."""
+    report = _edit_then_finish_run(
+        tmp_path, monkeypatch, [],
+        [
+            {"action": "run_command", "reasoning": "check output",
+             "command": "python train.py"},
+            {"action": "run_command", "reasoning": "check something else",
+             "command": "exit 1"},
+        ],
+    )
+    assert report.status == "failed"
+    assert any("downgraded" in risk for risk in report.residual_risks)

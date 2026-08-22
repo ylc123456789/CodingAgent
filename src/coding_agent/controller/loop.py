@@ -84,13 +84,14 @@ def run_step_controller(spec: CodeTaskSpec, resume_state: AgentState | None = No
                     )
                     verification_results.extend(auto_verification)
                 diff_path = write_diff(current_diff(spec.workspace_path), output_dir)
-                status = _final_status(action.status, changed_files, verification_results)
+                effective = _verification_after_last_change(state.steps)
+                status = _final_status(action.status, changed_files, effective)
                 residual_risks = list(action.residual_risks)
                 if status == "failed" and action.status == "completed":
-                    failed = [r for r in verification_results if not r.succeeded]
+                    failed = [r for r in effective if not r.succeeded]
                     residual_risks.append(
-                        f"{len(failed)} verification command(s) failed; "
-                        "final status downgraded from 'completed' to 'failed'."
+                        f"{len(failed)} verification command(s) failed after the last "
+                        "change; final status downgraded from 'completed' to 'failed'."
                     )
                 report = PatchReport(
                     status=status,
@@ -129,7 +130,11 @@ def run_step_controller(spec: CodeTaskSpec, resume_state: AgentState | None = No
 
     diff_path = write_diff(current_diff(spec.workspace_path), output_dir)
     if changed_files and verification_results:
-        report = review_outcome(spec, changed_files, diff_path, verification_results, [final_error] if final_error else [])
+        report = review_outcome(
+            spec, changed_files, diff_path, verification_results,
+            [final_error] if final_error else [],
+            effective_results=_verification_after_last_change(state.steps),
+        )
     else:
         report = PatchReport(
             status="failed",
@@ -185,11 +190,11 @@ def _should_continue_past_base_limit(spec: CodeTaskSpec, steps: list[StepRecord]
 def _final_status(requested_status: str | None, changed_files: list[str], verification_results) -> str:
     """Return the finish status.
 
-    Deterministic verification evidence outranks the agent's requested
-    "completed": a verification command that actually ran and failed
-    downgrades the final status to "failed".  Other requested statuses
-    pass through unchanged, and a run without verification results keeps
-    the requested status.
+    Callers pass the effective verification window (results recorded at
+    or after the last file change, latest run per command).  A failed
+    result in that window downgrades a requested "completed" to
+    "failed".  Other requested statuses pass through unchanged, and a
+    window without verification results keeps the requested status.
 
     When the agent did *not* provide a status (error, budget exhaustion, or
     ask_user without an explicit marker), fall back to a conservative inference
@@ -205,6 +210,26 @@ def _final_status(requested_status: str | None, changed_files: list[str], verifi
 def _failed_verification(verification_results) -> bool:
     """Return whether any verification command actually ran and failed."""
     return any(not result.succeeded for result in verification_results)
+
+
+def _verification_after_last_change(steps: list[StepRecord]) -> list:
+    """Return the effective verification window for status decisions.
+
+    Only results recorded at or after the last file change count, and
+    the latest run of each command wins: a test that failed and was
+    then fixed and re-run decides by its latest result.  History before
+    the last change stays in the logs but never decides the final status.
+    """
+    last_change = max((step.step for step in steps if step.changed_files), default=0)
+    if last_change == 0:
+        return []
+    latest: dict[str, object] = {}
+    for step in steps:
+        if step.step < last_change:
+            continue
+        for result in step.verification_results:
+            latest[result.command] = result
+    return list(latest.values())
 
 
 def _status_from_verification(changed_files: list[str], verification_results) -> str:
