@@ -602,14 +602,14 @@ def create_or_reuse_environment(
             audit["env_id"] = id_value
             audit["resolved_fingerprint"] = manifest["resolved_fingerprint"]
             if audit["outcome"] == "fail":
-                manifest["state"] = "failed"
+                transition_manifest(manifest, "failed")
                 manifest["certification"] = "none"
                 write_manifest_atomic(root, manifest)
                 raise EnvironmentBlockedError(
                     "verification audit failed after environment creation",
                     ["fix the dependency declarations and rebuild"],
                 )
-            manifest["state"] = "ready"
+            transition_manifest(manifest, "ready")
             manifest["certification"] = "verification"
             manifest["audits"].append({
                 "artifact": f"audits/{audit['audit_id']}.json",
@@ -627,8 +627,7 @@ def create_or_reuse_environment(
         except Exception:
             manifest = read_manifest(root, id_value) or manifest
             if manifest["state"] == "creating":
-                manifest["state"] = "failed"
-                manifest["updated_at"] = _now_iso()
+                transition_manifest(manifest, "failed")
                 try:
                     write_manifest_atomic(root, manifest)
                 except ValueError:
