@@ -87,11 +87,17 @@ C3 的首版实现被真实场景反馈否决（"CodingAgent 会被历史失败�
 | 多条最终验证任一失败 = failed | `test_any_failed_final_verification_reports_failed` |
 | reviewer 层窗口判定 + 全量证据保留 | `test_review_outcome_uses_effective_window` |
 
+### 追加：resume 报告证据重建（[中]）
+
+- 根因：`run_step_controller` 每次进入都重置 `changed_files` / `verification_results` 累加器，resume 时未从 `state.steps` 恢复——暂停前的修改和验证证据在最终 PatchReport 中丢失，且报告与 state.json 不一致（跨模块影响：reproagent 消费 `report.changed_files` 与 `report.verification_results`）。
+- 修改（提交 `278fffc`）：resume 时从全部 `state.steps` 重建两个累加器——`changed_files` 按首次出现顺序去重（`_accumulated_changed_files`），`verification_results` 完整保留；最终状态判定仍用"最后修改后有效窗口"（该逻辑本就基于 steps，不受影响）。
+- 测试：`tests/test_resume_initial_diff.py` 新增 `test_resume_report_carries_pre_pause_evidence` —— 首跑（编辑→验证→ask_user）→ resume（finish），断言：`initial_diff.patch` 不变、`changed_files` 含暂停前修改、`verification_results` 含暂停前结果、最终报告与 state.json 一致。
+
 ## 4. 测试结果
 
 | 项目 | 结果 |
 |---|---|
-| 全量单元测试 | **187/187 通过**（整理前 172；reviewer 5 + C1/C2/C3 及修订回归共 10） |
+| 全量单元测试 | **188/188 通过**（整理前 172；reviewer 5 + C1/C2/C3 及修订回归共 11） |
 | 契约锁 | `test_phase0_contract.py` 通过——`__all__`、QA_SYSTEM/ACTION_SCHEMA/QA_ACTION_SCHEMA 哈希、公共模型字段列表未变 |
 | vendored 契约 | `test_vendor_contract.py` 通过（sha256 字节一致） |
 | 公共入口导入 | 全部公共 + 内部入口导入正常；`typing.get_type_hints` 可解析 |
@@ -113,7 +119,7 @@ C3 的首版实现被真实场景反馈否决（"CodingAgent 会被历史失败�
 
 ## 6. 验收对照（任务单）
 
-- 全量测试通过 ✅（187/187）
+- 全量测试通过 ✅（188/188）
 - 自动验证在任务指定环境执行 ✅（C1 + 测试断言绑定传递；包装逻辑原在 `run_verify_commands` 单一位置）
 - resume 后 `initial_diff.patch` 内容不变 ✅（C2 + 端到端测试）
 - 验证失败时最终状态不是 completed，且失败→修复→通过不再被历史污染 ✅（C3 + 窗口语义修订，controller/reviewer 两层测试）

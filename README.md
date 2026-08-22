@@ -362,7 +362,7 @@ report = resume_code_task(
 |----------|-------------|
 | `list_sessions(root)` | Scan `root` for `session.yaml` files. |
 | `session_status(output_dir)` | Read card and state.json summary. |
-| `resume_code_task(output_dir, instruction)` | Continue a task; appends steps, preserves session ID. |
+| `resume_code_task(output_dir, instruction)` | Continue a task; appends steps, preserves session ID. The resumed report carries the whole session's `changed_files` and `verification_results`. |
 
 ## Batch Tests
 
