@@ -35,10 +35,8 @@ def _conda_executable() -> str | None:
     ):
         if candidate.is_file():
             candidates.append(str(candidate))
-    for candidate in candidates:
-        if Path(candidate).is_file():
-            return candidate
-    return None
+    # Every candidate was checked with is_file() before it was appended.
+    return candidates[0] if candidates else None
 
 
 def _wrap_conda(command: str, env_name: str) -> str:

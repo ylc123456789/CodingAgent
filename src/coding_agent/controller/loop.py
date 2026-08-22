@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from ..runtime.apply import current_diff
 from ..context.builder import build_repo_context
-from ..context.policy import resolve_context_policy
+from ..context.policy import ContextPolicy, resolve_context_policy
 from ..llm import LLMClient
 from ..models import AgentState, CodeTaskSpec, ControllerAction, PatchReport, StepRecord
 from ..report import prepare_output_dir, write_diff, write_initial_diff, write_patch_report, write_state
