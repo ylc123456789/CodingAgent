@@ -17,6 +17,8 @@ coding_agent/
 ├── session.py           # session.yaml index cards: write/read/list/status
 ├── report.py            # run artifacts: state, diffs, patch report
 ├── reviewer.py          # evidence -> final report conversion
+├── resources.py         # content-addressed environment lifecycle (M2 contract)
+├── _vendor/             # byte-identical ENVIRONMENT_*_V1 contract algorithms
 ├── controller/          # agentic loop, action dispatch, prompts
 │   ├── loop.py          # step loop, budget, finish gating
 │   ├── actions.py       # 11 action handlers + syntax check
@@ -29,12 +31,9 @@ coding_agent/
     ├── runner.py        # verification command execution
     ├── edits.py         # deterministic text edits (replace/insert)
     ├── apply.py         # unified diff validation and application
-    └── safety.py        # path and command safety guards
+    ├── safety.py        # path and command safety guards
+    └── dataset_cache.py # hardcoded dataset roots -> shared cache symlinks
 ```
-
-Legacy top-level modules (`apply.py`, `edits.py`, `runner.py`,
-`safety.py`, `context_policy.py`) remain as thin compatibility
-re-exports pointing into `runtime/` and `context/`.
 
 ### Call Flow
 
@@ -128,6 +127,16 @@ api_key_env=DEEPSEEK_API_KEY
 | `model_context_window_tokens` | `int\|None` | no | `None` | Override context window size. |
 | `context_margin_ratio` | `float` | no | `0.20` | Safety margin fraction. |
 | `context_output_reserve_tokens` | `int` | no | `16384` | Token reserve for model output. |
+| `session_id` | `str` | no | `""` | Stable session id for the session card; generated when empty. |
+| `parent_run` | `dict\|None` | no | `None` | Orchestrator run identity recorded on the session card. |
+| `read_only` | `bool` | no | `False` | Read-only QA mode (set internally by `run_code_question`). |
+| `resource_root` | `str` | no | `""` | Root for content-addressed environments; empty = legacy env binding. |
+| `requires_gpu` | `bool` | no | `False` | Task needs a GPU (feasibility probe, never inferred from the caller). |
+| `accelerator_variant` | `str` | no | `""` | Explicit CUDA variant (e.g. `cu124`) for environment identity. |
+| `pip_index_profile` | `str` | no | `""` | Mirror profile for pip installs inside the environment. |
+| `dataset_cache_dir` | `str` | no | `""` | Shared dataset cache root; hardcoded roots are bridged by symlink. |
+| `mirror_profile` | `str` | no | `""` | ReproAgent mirror naming; feeds `pip_index_profile` when that is unset. |
+| `project_ref` | `str` | no | `""` | Orchestrator project identity; env_id slug source in content-addressed mode. |
 
 ### Output: `PatchReport`
 
@@ -211,7 +220,7 @@ print(result.evidence_files) # paths inspected during the question
 - Unified diff remains available through `apply_patch`, and every run can still produce `diff.patch`.
 - Patches are validated with `git apply --check` before they are applied.
 - Malformed patches are saved as `logs/failed_patch_<step>_<attempt>.patch` with matching stderr artifacts.
-- Patch repair can return either a corrected diff or a structured edit action.
+- Patch repair never returns another unified diff: it returns a structured edit (`replace_text` / `insert_before` / `insert_after`) or a full-file `write_file` rewrite.
 - `ControllerAction.reasoning` is optional so minor model schema omissions do not fail an otherwise valid run.
 - The agent's explicit `finish` status is authoritative; verification results are recorded as evidence for the caller to inspect but do not override the agent's judgment.
 - If files changed after the last verification, the controller auto-runs `verify_commands` before accepting `finish`.
