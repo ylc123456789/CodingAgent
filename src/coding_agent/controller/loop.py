@@ -84,13 +84,21 @@ def run_step_controller(spec: CodeTaskSpec, resume_state: AgentState | None = No
                     )
                     verification_results.extend(auto_verification)
                 diff_path = write_diff(current_diff(spec.workspace_path), output_dir)
+                status = _final_status(action.status, changed_files, verification_results)
+                residual_risks = list(action.residual_risks)
+                if status == "failed" and action.status == "completed":
+                    failed = [r for r in verification_results if not r.succeeded]
+                    residual_risks.append(
+                        f"{len(failed)} verification command(s) failed; "
+                        "final status downgraded from 'completed' to 'failed'."
+                    )
                 report = PatchReport(
-                    status=_final_status(action.status, changed_files, verification_results),
+                    status=status,
                     changed_files=changed_files,
                     diff_path=diff_path,
                     verification_results=verification_results,
                     summary=action.summary or "Controller finished the coding task.",
-                    residual_risks=action.residual_risks,
+                    residual_risks=residual_risks,
                 )
                 state.report = report
                 write_patch_report(spec, report, output_dir)
@@ -177,17 +185,26 @@ def _should_continue_past_base_limit(spec: CodeTaskSpec, steps: list[StepRecord]
 def _final_status(requested_status: str | None, changed_files: list[str], verification_results) -> str:
     """Return the finish status.
 
-    The agent's explicit finish status is authoritative --- it has semantic
-    understanding of whether the task succeeded.  Verification results are
-    evidence for the caller to inspect but do not override the agent's judgment.
+    Deterministic verification evidence outranks the agent's requested
+    "completed": a verification command that actually ran and failed
+    downgrades the final status to "failed".  Other requested statuses
+    pass through unchanged, and a run without verification results keeps
+    the requested status.
 
     When the agent did *not* provide a status (error, budget exhaustion, or
     ask_user without an explicit marker), fall back to a conservative inference
     from changed files and verification results.
     """
     if requested_status:
+        if requested_status == "completed" and _failed_verification(verification_results):
+            return "failed"
         return requested_status
     return _status_from_verification(changed_files, verification_results)
+
+
+def _failed_verification(verification_results) -> bool:
+    """Return whether any verification command actually ran and failed."""
+    return any(not result.succeeded for result in verification_results)
 
 
 def _status_from_verification(changed_files: list[str], verification_results) -> str:

@@ -42,18 +42,22 @@ def test_changes_with_passing_verification_reports_completed(tmp_path):
     assert not any("returned non-zero" in risk for risk in report.residual_risks)
 
 
-def test_failed_verification_is_recorded_as_risk(tmp_path):
+def test_failed_verification_reports_failed(tmp_path):
     report = review_outcome(
         _spec(tmp_path), ["train.py"], tmp_path / "diff.patch", [_cmd(tmp_path, returncode=1)],
     )
-    # Current semantics: verification failure is evidence, recorded as a
-    # residual risk (status semantics are owned by the overall review).
-    assert report.status == "completed"
+    # Deterministic evidence rules: a verification command that ran and
+    # failed makes the status failed, never completed.
+    assert report.status == "failed"
     assert any("returned non-zero" in risk for risk in report.residual_risks)
+    assert "verification command(s) failed" in report.summary
 
 
-def test_missing_verification_is_noted(tmp_path):
+def test_missing_verification_keeps_completed_with_note(tmp_path):
     report = review_outcome(
         _spec(tmp_path), ["train.py"], tmp_path / "diff.patch", [],
     )
+    # No verification ran, so there is no deterministic failure: keep the
+    # historical completed-with-note behavior.
+    assert report.status == "completed"
     assert any("No verification commands" in risk for risk in report.residual_risks)

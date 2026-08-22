@@ -11,7 +11,13 @@ def review_outcome(
     verification_results: list[CommandResult],
     residual_risks: list[str] | None = None,
 ) -> PatchReport:
-    """Review changes and verification into a report."""
+    """Review changes and verification into a report.
+
+    Deterministic evidence rules the outcome: a verification command
+    that actually ran and failed makes the status "failed", never
+    "completed".  Runs without any verification keep the historical
+    behavior (completed with a note).
+    """
     residual = list(residual_risks or [])
     if not changed_files:
         return PatchReport(
@@ -27,6 +33,17 @@ def review_outcome(
         residual.append(
             f"{len(failed_verifications)} verification command(s) returned non-zero: "
             + "; ".join(f"{r.command} (rc={r.returncode})" for r in failed_verifications)
+        )
+        return PatchReport(
+            status="failed",
+            changed_files=changed_files,
+            diff_path=diff_path,
+            verification_results=verification_results,
+            summary=(
+                f"Patch applied for: {spec.task_goal}, but "
+                f"{len(failed_verifications)} verification command(s) failed."
+            ),
+            residual_risks=residual,
         )
     if not verification_results:
         residual.append("No verification commands were provided, so completion is based on patch application only.")
