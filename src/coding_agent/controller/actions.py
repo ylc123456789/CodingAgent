@@ -170,7 +170,11 @@ def _run_missing_finish_verification(
     output_dir: Path,
     finish_step: int,
 ):
-    """Run verification when finish follows unverified edits."""
+    """Run verification when finish follows unverified edits.
+
+    Uses the same environment binding as the run_command action: verify
+    commands execute inside spec.env_name under spec.env_policy.
+    """
     if not spec.verify_commands:
         return []
     last_change_step = max((step.step for step in steps if step.changed_files), default=0)
@@ -184,6 +188,8 @@ def _run_missing_finish_verification(
         spec.verify_commands,
         output_dir / "logs" / f"step_{finish_step:02d}_finish_verify",
         spec.timeout_seconds,
+        spec.env_name,
+        spec.env_policy,
     )
 
 
