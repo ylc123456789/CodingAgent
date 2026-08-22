@@ -18,8 +18,19 @@ def run_step_controller(spec: CodeTaskSpec, resume_state: AgentState | None = No
     if resume_state is not None:
         state = resume_state
         state.task = spec
+        # A resumed session's final report must carry the whole session's
+        # evidence (reproagent consumes changed_files and
+        # verification_results): rebuild both from all recorded steps.
+        # changed_files keep first-appearance order; verification results
+        # are preserved in full.
+        changed_files = _accumulated_changed_files(state.steps)
+        verification_results = [
+            result for step in state.steps for result in step.verification_results
+        ]
     else:
         state = AgentState(task=spec)
+        changed_files: list[str] = []
+        verification_results = []
         # Bridge hardcoded dataset roots to the shared cache before the loop
         # (mirrors ReproAgent): the LLM cannot do this itself and relative-path
         # reasoning is where it fails. Best-effort, never fatal.
@@ -42,8 +53,6 @@ def run_step_controller(spec: CodeTaskSpec, resume_state: AgentState | None = No
         write_initial_diff(context.initial_diff, output_dir)
     client = LLMClient(api_base=spec.api_base, api_key_env=spec.api_key_env, model=spec.model)
 
-    changed_files: list[str] = []
-    verification_results = []
     final_error = ""
 
     start_step = len(state.steps) + 1
@@ -210,6 +219,18 @@ def _final_status(requested_status: str | None, changed_files: list[str], verifi
 def _failed_verification(verification_results) -> bool:
     """Return whether any verification command actually ran and failed."""
     return any(not result.succeeded for result in verification_results)
+
+
+def _accumulated_changed_files(steps: list[StepRecord]) -> list[str]:
+    """Return changed file paths in first-appearance order."""
+    seen: set[str] = set()
+    paths: list[str] = []
+    for step in steps:
+        for path in step.changed_files:
+            if path not in seen:
+                seen.add(path)
+                paths.append(path)
+    return paths
 
 
 def _verification_after_last_change(steps: list[StepRecord]) -> list:
