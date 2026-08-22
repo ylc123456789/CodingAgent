@@ -7,7 +7,6 @@ deterministic code; the LLM never participates.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -38,11 +37,6 @@ spec_fingerprint = _contract.spec_fingerprint
 resolved_fingerprint = _contract.resolved_fingerprint
 project_slug = _contract.project_slug
 env_id = _contract.env_id
-
-
-def sha256_hex_bytes(data: bytes) -> str:
-    """SHA-256 hex digest of raw bytes, lowercase."""
-    return hashlib.sha256(data).hexdigest()
 
 
 

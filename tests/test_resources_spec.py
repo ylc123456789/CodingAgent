@@ -98,15 +98,19 @@ def test_raw_bytes_hashing_includes_contract_file_set(tmp_path):
     assert req["sha256"] == expected
 
 
-def test_raw_bytes_vs_decoded_hash_differ():
+def test_raw_bytes_vs_decoded_hash_differ(tmp_path):
     """Guards against regressing to decode-then-hash.
 
     Invalid UTF-8 bytes are silently dropped by errors=ignore, so the
-    decoded hash differs from the raw-byte hash.
+    decoded hash differs from the raw-byte hash the contract collects.
     """
-    from coding_agent.resources import sha256_hex, sha256_hex_bytes
-    data = b"numpy\n\xff\xfe"  # trailing invalid UTF-8
-    assert sha256_hex_bytes(data) != sha256_hex(data.decode("utf-8", errors="ignore"))
+    import hashlib
+    (tmp_path / "requirements.txt").write_bytes(b"numpy\n\xff\xfe")
+    spec = collect_environment_spec(tmp_path, python_version="3.11")
+    entry = [f for f in spec["dependency_files"] if f["path"] == "requirements.txt"][0]
+    assert entry["sha256"] == hashlib.sha256(b"numpy\n\xff\xfe").hexdigest()
+    decoded = b"numpy\n\xff\xfe".decode("utf-8", errors="ignore").encode("utf-8")
+    assert entry["sha256"] != hashlib.sha256(decoded).hexdigest()
 
 
 def test_dependency_files_sorted(tmp_path):
