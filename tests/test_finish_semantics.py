@@ -84,6 +84,32 @@ def test_finish_without_verification_stays_completed(tmp_path, monkeypatch):
     assert not any("downgraded" in risk for risk in report.residual_risks)
 
 
+def test_no_change_with_failed_verification_downgrades_completed(tmp_path, monkeypatch):
+    """A no-op task cannot hide a verification failure behind completed."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "train.py").write_text("print('unchanged')\n")
+    _init_repo(repo)
+    actions = [
+        {"action": "run_command", "reasoning": "verify existing code", "command": "exit 1"},
+        {"action": "finish", "status": "completed", "summary": "no changes needed"},
+    ]
+    monkeypatch.setattr("coding_agent.controller.loop.LLMClient", _make_client(actions))
+
+    report = run_code_task(
+        CodeTaskSpec(
+            workspace_path=repo,
+            output_dir=tmp_path / "out",
+            task_goal="verify existing code",
+            max_steps=4,
+        )
+    )
+
+    assert report.changed_files == []
+    assert report.status == "failed"
+    assert any("downgraded" in risk for risk in report.residual_risks)
+
+
 def test_finish_with_passing_verification_stays_completed(tmp_path, monkeypatch):
     report = _edit_then_finish_run(
         tmp_path, monkeypatch, [],

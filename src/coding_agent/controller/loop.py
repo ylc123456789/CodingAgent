@@ -236,17 +236,14 @@ def _accumulated_changed_files(steps: list[StepRecord]) -> list[str]:
 def _verification_after_last_change(steps: list[StepRecord]) -> list:
     """Return the effective verification window for status decisions.
 
-    Only results recorded at or after the last file change count, and
-    the latest run of each command wins: a test that failed and was
-    then fixed and re-run decides by its latest result.  History before
-    the last change stays in the logs but never decides the final status.
+    When files changed, only results recorded at or after the last change
+    count.  When no files changed, all verification results count.  In both
+    cases the latest run of each command wins.
     """
     last_change = max((step.step for step in steps if step.changed_files), default=0)
-    if last_change == 0:
-        return []
     latest: dict[str, object] = {}
     for step in steps:
-        if step.step < last_change:
+        if last_change and step.step < last_change:
             continue
         for result in step.verification_results:
             latest[result.command] = result

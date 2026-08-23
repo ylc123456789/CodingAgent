@@ -337,6 +337,8 @@ def _prepare_environment(spec: CodeTaskSpec) -> dict | None:
 
     if spec.env_name:
         manifest = bind_existing_environment(root, spec.env_name, spec_doc, spec.env_policy)
+        # Binding may start from an env id or name; execution uses its prefix.
+        spec.env_name = manifest["prefix"]
         return {
             "env_id": manifest["env_id"],
             "manifest_path": str(root / "environments" / manifest["env_id"] / "manifest.json"),
