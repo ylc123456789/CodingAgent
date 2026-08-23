@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -96,3 +97,32 @@ def test_conda_lookup_uses_explicit_executable_without_path(tmp_path, monkeypatc
     from coding_agent.resources import _find_conda_executable
 
     assert _find_conda_executable() == str(conda)
+
+
+def test_inventory_abi_comes_from_target_environment(tmp_path, monkeypatch):
+    prefix = tmp_path / "env"
+    python = prefix / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("#!/bin/sh\n", encoding="utf-8")
+    conda = tmp_path / "conda"
+    conda.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "coding_agent.resources._find_conda_executable", lambda: str(conda)
+    )
+
+    def fake_run(args, **kwargs):
+        if args[:2] == [str(python), "--version"]:
+            output = "Python 3.10.0\n"
+        elif args[:4] == [str(python), "-m", "pip", "list"]:
+            output = "[]"
+        elif args[:2] == [str(python), "-c"]:
+            output = "target-libc-abi\n"
+        else:
+            output = "[]"
+        return SimpleNamespace(returncode=0, stdout=output, stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    resolved = compute_resolved_inventory(prefix)
+
+    assert resolved["abi_summary"] == "target-libc-abi"

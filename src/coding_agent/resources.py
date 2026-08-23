@@ -263,12 +263,15 @@ def compute_resolved_inventory(env_prefix: Path) -> dict:
             f"environment inventory probe failed: {', '.join(failed_probes)}",
             ["repair the environment probe before certification or reuse"],
         )
-    try:
-        import platform
-        libc_name, libc_version = platform.libc_ver()
-        abi = f"{libc_name}{libc_version}" if libc_name else ""
-    except Exception:
-        abi = ""
+    abi = _run([
+        str(python_exe),
+        "-c",
+        (
+            "import platform; "
+            "name, version = platform.libc_ver(); "
+            "print(f'{name}{version}' if name else '')"
+        ),
+    ]).strip()
 
     return _contract.build_resolved(
         python_version=python_text,
