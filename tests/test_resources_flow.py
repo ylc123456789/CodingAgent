@@ -14,6 +14,7 @@ from coding_agent.resources import (
     create_or_reuse_environment,
     env_id,
     env_prefix,
+    recertify_environment,
     read_manifest,
     resolved_fingerprint,
     run_verification_audit,
@@ -129,6 +130,54 @@ def test_drifted_ready_blocks_reuse(tmp_path, monkeypatch):
     )
     with pytest.raises(EnvironmentBlockedError, match="drifted"):
         create_or_reuse_environment(root, spec, "myproj")
+
+
+def test_recertify_updates_allowed_environment_change(tmp_path, monkeypatch):
+    _patch_env(monkeypatch)
+    monkeypatch.setattr(
+        "coding_agent.resources.run_verification_audit", _pass_audit,
+    )
+    root = tmp_path / "resources"
+    manifest = create_or_reuse_environment(root, _spec(), "myproj")
+    changed = dict(RESOLVED, pip_inventory_sha256="cc" * 32)
+    monkeypatch.setattr(
+        "coding_agent.resources.compute_resolved_inventory",
+        lambda prefix: changed,
+    )
+
+    updated = recertify_environment(root, manifest["env_id"])
+
+    assert updated["state"] == "ready"
+    assert updated["certification"] == "verification"
+    assert updated["resolved_fingerprint"] == resolved_fingerprint(changed)
+    assert len(updated["audits"]) == 2
+    assert bind_existing_environment(
+        root, manifest["env_id"], _spec(), "reuse_only",
+    )["state"] == "ready"
+
+
+def test_recertify_quarantines_failed_environment_change(tmp_path, monkeypatch):
+    _patch_env(monkeypatch)
+    monkeypatch.setattr(
+        "coding_agent.resources.run_verification_audit", _pass_audit,
+    )
+    root = tmp_path / "resources"
+    manifest = create_or_reuse_environment(root, _spec(), "myproj")
+    monkeypatch.setattr(
+        "coding_agent.resources.compute_resolved_inventory",
+        lambda prefix: dict(RESOLVED, pip_inventory_sha256="dd" * 32),
+    )
+    monkeypatch.setattr(
+        "coding_agent.resources.run_verification_audit",
+        lambda prefix, spec, creator: dict(_pass_audit(prefix, spec, creator), outcome="fail"),
+    )
+
+    with pytest.raises(EnvironmentBlockedError, match="failed recertification"):
+        recertify_environment(root, manifest["env_id"])
+
+    quarantined = read_manifest(root, manifest["env_id"])
+    assert quarantined["state"] == "drifted"
+    assert quarantined["certification"] == "none"
 
 
 def test_audit_fail_marks_failed(tmp_path, monkeypatch):

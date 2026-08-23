@@ -371,6 +371,34 @@ def run_code_task(spec: CodeTaskSpec) -> PatchReport:
             return report
         raise
     report = run_step_controller(spec)
+    if environment_info and spec.env_policy in {"auto", "reuse_only"}:
+        from .resources import EnvironmentBlockedError, recertify_environment
+        try:
+            manifest = recertify_environment(
+                spec.resource_root,
+                environment_info["env_id"],
+                {"module": "codingagent", "task_id": spec.session_id},
+            )
+            environment_info.update({
+                "resolved_fingerprint": manifest["resolved_fingerprint"] or "",
+                "certification": manifest["certification"],
+            })
+        except EnvironmentBlockedError as exc:
+            report = report.model_copy(update={
+                "status": "blocked",
+                "summary": f"{report.summary} Environment recertification failed: {exc.reason}",
+                "residual_risks": list(report.residual_risks) + exc.required_actions,
+            })
+            from .models import AgentState
+            from .report import write_patch_report, write_state
+            state_path = spec.output_dir / "state.json"
+            if state_path.exists():
+                state = AgentState.model_validate_json(
+                    state_path.read_text(encoding="utf-8"),
+                )
+                state.report = report
+                write_state(state, spec.output_dir)
+            write_patch_report(spec, report, spec.output_dir)
     from .session import write_session_card
     write_session_card(spec, report, spec.output_dir, kind="task_session",
                        environment_info=environment_info)

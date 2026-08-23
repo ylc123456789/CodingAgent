@@ -637,6 +637,79 @@ def create_or_reuse_environment(
         lock.release()
 
 
+def recertify_environment(
+    resource_root: Path, env_id_value: str, creator: dict | None = None,
+) -> dict:
+    """Re-audit a managed environment after an allowed package mutation.
+
+    A task running under ``auto`` or ``reuse_only`` may install packages
+    after the environment was initially certified.  Keep the manifest in
+    sync when the resulting environment passes verification; otherwise
+    quarantine it as drifted so it cannot be reused silently.
+    """
+    root = Path(resource_root)
+    manifest = read_manifest(root, env_id_value)
+    if manifest is None:
+        raise EnvironmentBlockedError(
+            f"environment {env_id_value!r} is not registered in resource root {root}",
+            ["register the environment via its manifest"],
+        )
+    if manifest["state"] != "ready":
+        raise EnvironmentBlockedError(
+            f"environment {env_id_value} is {manifest['state']}, not ready",
+            ["rebuild the environment before reuse"],
+        )
+
+    lock = _acquire_creation_lock(root, manifest["spec_fingerprint"])
+    try:
+        manifest = read_manifest(root, env_id_value) or manifest
+        prefix = Path(manifest["prefix"])
+        resolved = compute_resolved_inventory(prefix)
+        computed = resolved_fingerprint(resolved)
+        if computed == manifest.get("resolved_fingerprint"):
+            return manifest
+
+        creator_info = creator or {"module": "codingagent"}
+        spec = manifest.get("spec")
+        if not isinstance(spec, dict):
+            raise EnvironmentBlockedError(
+                f"environment {env_id_value} manifest has no resolved spec",
+                ["rebuild the environment from a complete manifest"],
+            )
+        audit = run_verification_audit(prefix, spec, creator_info)
+        audit["env_id"] = env_id_value
+        audit["resolved_fingerprint"] = computed
+        manifest["resolved"] = resolved
+        manifest["resolved_fingerprint"] = computed
+        manifest.setdefault("audits", []).append({
+            "artifact": f"audits/{audit['audit_id']}.json",
+            "level": "verification",
+            "outcome": audit["outcome"],
+            "at": audit["at"],
+        })
+        if audit["outcome"] != "pass":
+            transition_manifest(manifest, "drifted")
+            manifest["certification"] = "none"
+        else:
+            manifest["certification"] = "verification"
+            manifest["updated_at"] = _now_iso()
+        write_manifest_atomic(root, manifest)
+
+        audit_dir = root / "environments" / env_id_value / "audits"
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        (audit_dir / f"{audit['audit_id']}.json").write_text(
+            canonical_dumps(audit), encoding="utf-8",
+        )
+        if audit["outcome"] != "pass":
+            raise EnvironmentBlockedError(
+                f"environment {env_id_value} changed and failed recertification",
+                ["fix the environment or rebuild it before retrying"],
+            )
+        return manifest
+    finally:
+        lock.release()
+
+
 def bind_existing_environment(
     resource_root: Path,
     env_name: str,
