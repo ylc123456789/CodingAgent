@@ -722,7 +722,9 @@ def bind_existing_environment(
     non-ready state, or drift all raise EnvironmentBlockedError.
     """
     root = Path(resource_root)
-    manifest = read_manifest(root, env_name)
+    env_ref = Path(env_name)
+    env_id_value = env_ref.name if env_ref.is_absolute() else env_name
+    manifest = read_manifest(root, env_id_value)
     if manifest is None:
         # tolerate an env that is a plain conda name in legacy mode:
         raise EnvironmentBlockedError(
@@ -731,6 +733,12 @@ def bind_existing_environment(
                 "register the environment via its manifest",
                 "or pass resource_root='' to use legacy env binding",
             ],
+        )
+    if env_ref.is_absolute() and env_ref.resolve() != Path(manifest["prefix"]).resolve():
+        raise EnvironmentBlockedError(
+            f"environment prefix {env_name!r} does not match registered "
+            f"environment {env_id_value!r}",
+            ["use the prefix recorded in the environment manifest"],
         )
     if manifest["spec_fingerprint"] != spec_fingerprint(spec):
         raise EnvironmentBlockedError(

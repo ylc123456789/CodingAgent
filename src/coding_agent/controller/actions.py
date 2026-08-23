@@ -128,7 +128,26 @@ def execute_action(spec: CodeTaskSpec, action: ControllerAction, output_dir: Pat
                 validate_read_only_command(command)
             except Exception as exc:
                 return StepRecord(step=step, action=action, observation=str(exc), error=str(exc))
-        results = run_verify_commands(spec.workspace_path, [command], output_dir / "logs" / f"step_{step:02d}", spec.timeout_seconds, spec.env_name, spec.env_policy)
+        try:
+            results = run_verify_commands(
+                spec.workspace_path,
+                [command],
+                output_dir / "logs" / f"step_{step:02d}",
+                spec.timeout_seconds,
+                spec.env_name,
+                spec.env_policy,
+            )
+        except SafetyError as exc:
+            message = (
+                f"Command rejected by the safety policy: {exc}. "
+                "Choose a non-destructive verification command and try again."
+            )
+            return StepRecord(
+                step=step,
+                action=action,
+                observation=message,
+                error=str(exc),
+            )
         result = results[0]
         stdout_tail = result.stdout_path.read_text(encoding="utf-8", errors="ignore")[-4000:]
         stderr_tail = result.stderr_path.read_text(encoding="utf-8", errors="ignore")[-4000:]

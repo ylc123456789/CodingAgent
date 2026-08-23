@@ -156,6 +156,21 @@ def test_recertify_updates_allowed_environment_change(tmp_path, monkeypatch):
     )["state"] == "ready"
 
 
+def test_bind_existing_environment_accepts_registered_prefix(tmp_path, monkeypatch):
+    _patch_env(monkeypatch)
+    monkeypatch.setattr(
+        "coding_agent.resources.run_verification_audit", _pass_audit,
+    )
+    root = tmp_path / "resources"
+    manifest = create_or_reuse_environment(root, _spec(), "myproj")
+
+    bound = bind_existing_environment(
+        root, manifest["prefix"], _spec(), "reuse_only",
+    )
+
+    assert bound["env_id"] == manifest["env_id"]
+
+
 def test_recertify_quarantines_failed_environment_change(tmp_path, monkeypatch):
     _patch_env(monkeypatch)
     monkeypatch.setattr(
