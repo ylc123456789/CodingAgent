@@ -99,6 +99,7 @@ def write_session_card(spec, report, output_dir, kind="task_session",
             }
             if environment_info:
                 # content-addressed extras (additive, optional for readers)
+                env_binding["env_id"] = environment_info.get("env_id", "")
                 env_binding["manifest_path"] = environment_info.get("manifest_path", "")
                 env_binding["spec_fingerprint"] = environment_info.get("spec_fingerprint", "")
                 env_binding["resolved_fingerprint"] = environment_info.get("resolved_fingerprint", "")

@@ -71,6 +71,30 @@ def test_card_with_parent(tmp_path):
     assert card["parent"] == {"module": "resagent", "run_id": "res-123", "task_id": "task_1"}
 
 
+def test_content_addressed_environment_binding_keeps_logical_id(tmp_path):
+    spec = FakeSpec()
+    spec.workspace_path = tmp_path
+    spec.env_name = "/resources/conda-envs/resenv_project_abc123"
+    spec.env_policy = "auto"
+    environment_info = {
+        "env_id": "resenv_project_abc123",
+        "manifest_path": "/resources/environments/resenv_project_abc123/manifest.json",
+        "prefix": spec.env_name,
+        "spec_fingerprint": "a" * 64,
+        "resolved_fingerprint": "b" * 64,
+        "certification": "verification",
+    }
+
+    write_session_card(
+        spec, FakeReport(), tmp_path, environment_info=environment_info,
+    )
+
+    environment = read_session_card(tmp_path)["bindings"]["environment"]
+    assert environment["env_id"] == "resenv_project_abc123"
+    assert environment["name"] == spec.env_name
+    assert environment["prefix"] == spec.env_name
+
+
 def test_list_sessions(tmp_path):
     # Create two session dirs
     d1 = tmp_path / "a"
