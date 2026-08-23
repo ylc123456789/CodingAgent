@@ -193,6 +193,27 @@ def collect_environment_spec(
     }
 
 
+def _find_conda_executable() -> str | None:
+    """Locate conda independently of the caller's activated shell."""
+    import os
+    import shutil
+
+    candidates = [os.environ.get("CONDA_EXE", ""), shutil.which("conda") or ""]
+    candidates.extend(str(path) for path in (
+        Path.home() / "miniconda3" / "bin" / "conda",
+        Path.home() / "anaconda3" / "bin" / "conda",
+        Path.home() / "miniforge3" / "bin" / "conda",
+        Path("/opt/conda/bin/conda"),
+        Path("/usr/local/miniconda3/bin/conda"),
+        Path("/root/miniconda3/bin/conda"),
+        Path("/root/anaconda3/bin/conda"),
+    ))
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return candidate
+    return None
+
+
 def compute_resolved_inventory(env_prefix: Path) -> dict:
     """Compute the normalized installed inventory of a conda env.
 
@@ -200,7 +221,6 @@ def compute_resolved_inventory(env_prefix: Path) -> dict:
     come from the vendored contract file (the ONE cross-repo implementation),
     so a given physical env yields the identical fingerprint everywhere.
     """
-    import shutil
     import subprocess
     from ._vendor import env_contract_v1 as _contract
 
@@ -213,7 +233,7 @@ def compute_resolved_inventory(env_prefix: Path) -> dict:
             )
         except (OSError, subprocess.TimeoutExpired):
             return ""
-        return result.stdout if result.returncode == 0 else ""
+        return (result.stdout or result.stderr) if result.returncode == 0 else ""
 
     python_exe = prefix / "bin" / "python"
     if not python_exe.exists():
@@ -222,12 +242,27 @@ def compute_resolved_inventory(env_prefix: Path) -> dict:
             ["create the environment before computing its inventory"],
         )
 
+    conda_exe = _find_conda_executable()
+    if not conda_exe:
+        raise EnvironmentBlockedError(
+            "cannot locate conda to inspect the managed environment",
+            ["install conda or set CONDA_EXE to its executable path"],
+        )
     python_text = _run([str(python_exe), "--version"]).strip()
     pip_text = _run([str(python_exe), "-m", "pip", "list", "--format=json"])
-    conda_exe = shutil.which("conda") or ""
-    conda_text = (
-        _run([conda_exe, "list", "-p", str(prefix), "--json"]) if conda_exe else ""
-    )
+    conda_text = _run([conda_exe, "list", "-p", str(prefix), "--json"])
+    failed_probes = [
+        name for name, output in (
+            ("python version", python_text),
+            ("pip inventory", pip_text),
+            ("conda inventory", conda_text),
+        ) if not output
+    ]
+    if failed_probes:
+        raise EnvironmentBlockedError(
+            f"environment inventory probe failed: {', '.join(failed_probes)}",
+            ["repair the environment probe before certification or reuse"],
+        )
     try:
         import platform
         libc_name, libc_version = platform.libc_ver()

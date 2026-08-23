@@ -73,3 +73,26 @@ def test_check_freshness_passes_clean(monkeypatch, tmp_path):
 def test_missing_prefix_is_blocked(tmp_path):
     with pytest.raises(EnvironmentBlockedError, match="does not exist"):
         compute_resolved_inventory(tmp_path / "nonexistent")
+
+
+def test_inventory_blocks_when_conda_cannot_be_located(tmp_path, monkeypatch):
+    prefix = tmp_path / "env"
+    python = prefix / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr("coding_agent.resources._find_conda_executable", lambda: None)
+
+    with pytest.raises(EnvironmentBlockedError, match="cannot locate conda"):
+        compute_resolved_inventory(prefix)
+
+
+def test_conda_lookup_uses_explicit_executable_without_path(tmp_path, monkeypatch):
+    conda = tmp_path / "miniconda" / "bin" / "conda"
+    conda.parent.mkdir(parents=True)
+    conda.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setenv("CONDA_EXE", str(conda))
+    monkeypatch.setattr("shutil.which", lambda name: None)
+
+    from coding_agent.resources import _find_conda_executable
+
+    assert _find_conda_executable() == str(conda)
