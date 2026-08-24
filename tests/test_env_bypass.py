@@ -114,6 +114,20 @@ def test_resume_restores_env_contract(tmp_path, monkeypatch):
             "env_policy": "frozen",
             "env_name": "resenv_x",
             "max_steps": 24,
+            "max_extra_steps_after_progress": 11,
+            "patch_repair_attempts": 4,
+            "max_context_tokens": 120000,
+            "model_context_window_tokens": 200000,
+            "context_margin_ratio": 0.15,
+            "context_output_reserve_tokens": 12000,
+            "resource_root": str(tmp_path / "resources"),
+            "requires_gpu": True,
+            "accelerator_variant": "cu124",
+            "pip_index_profile": "autodl",
+            "dataset_cache_dir": str(tmp_path / "datasets"),
+            "mirror_profile": "autodl",
+            "project_ref": "resume-project",
+            "parent_run": {"module": "resagent", "run_id": "res-1"},
         },
         "steps": [],
         "report": {"summary": "previous run done"},
@@ -153,5 +167,58 @@ def test_resume_restores_env_contract(tmp_path, monkeypatch):
     assert spec.branch == "main"
     assert spec.verify_commands == ["python train.py"]
     assert spec.allowed_paths == ["train.py"]
+    assert spec.max_extra_steps_after_progress == 11
+    assert spec.patch_repair_attempts == 4
+    assert spec.max_context_tokens == 120000
+    assert spec.model_context_window_tokens == 200000
+    assert spec.context_margin_ratio == 0.15
+    assert spec.context_output_reserve_tokens == 12000
+    assert spec.resource_root == str(tmp_path / "resources")
+    assert spec.requires_gpu is True
+    assert spec.accelerator_variant == "cu124"
+    assert spec.pip_index_profile == "autodl"
+    assert spec.dataset_cache_dir == str(tmp_path / "datasets")
+    assert spec.mirror_profile == "autodl"
+    assert spec.project_ref == "resume-project"
+    assert spec.parent_run == {"module": "resagent", "run_id": "res-1"}
     assert "previous run" in spec.task_goal
     assert "continue the task" in spec.task_goal
+
+
+def test_resume_reenters_environment_lifecycle(tmp_path, monkeypatch):
+    from coding_agent.agent import _run_code_task_resume
+    from coding_agent.models import AgentState, PatchReport
+
+    out = tmp_path / "out"
+    out.mkdir()
+    spec = CodeTaskSpec(
+        workspace_path=tmp_path / "ws",
+        output_dir=out,
+        task_goal="continue",
+        resource_root=str(tmp_path / "resources"),
+    )
+    (out / "state.json").write_text(AgentState(task=spec).model_dump_json())
+
+    captured = {}
+
+    def fake_prepare(task_spec):
+        captured["prepared"] = task_spec.resource_root
+        return None
+
+    def fake_controller(task_spec, resume_state=None):
+        captured["resume_state"] = resume_state
+        return PatchReport(
+            status="completed",
+            changed_files=[],
+            diff_path=None,
+            verification_results=[],
+            summary="resumed",
+        )
+
+    monkeypatch.setattr("coding_agent.agent._prepare_environment", fake_prepare)
+    monkeypatch.setattr("coding_agent.agent.run_step_controller", fake_controller)
+
+    _run_code_task_resume(spec, out)
+
+    assert captured["prepared"] == str(tmp_path / "resources")
+    assert isinstance(captured["resume_state"], AgentState)

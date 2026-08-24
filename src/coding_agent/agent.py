@@ -138,14 +138,12 @@ def run_code_question(spec):
 def resume_code_task(output_dir, instruction, **overrides):
     """Resume a previous coding task with a new instruction.
 
-    Reads the previous state from output_dir, builds a new CodeTaskSpec
-    with the same workspace_path, verify_commands, allowed_paths, and
-    timeout_seconds.  The task_goal includes the previous summary plus
-    the new instruction.  New steps are appended to existing state.json.
+    Rebuilds the complete persisted CodeTaskSpec, then applies explicit
+    overrides and a continuation goal. New steps are appended to state.json.
     """
     import json
     from pathlib import Path as _Path
-    from .session import read_session_card, _generate_session_id
+    from .session import read_session_card
     from .models import CodeTaskSpec
 
     output_dir = _Path(output_dir)
@@ -165,33 +163,21 @@ def resume_code_task(output_dir, instruction, **overrides):
     task_data = state.get("task", {})
     ws = _Path(task_data.get("workspace_path", card.get("project_path", ".")))
 
-    task_spec = CodeTaskSpec(
-        workspace_path=ws,
-        task_goal=(
+    resume_data = {
+        **task_data,
+        **overrides,
+        "workspace_path": ws,
+        "output_dir": output_dir,
+        "task_goal": (
             f"Continue previous task.\n\n"
             f"Previous summary: {last_summary}\n\n"
             f"Previous report: {last_report}\n\n"
             f"New instruction: {instruction}"
         ),
-        constraints=task_data.get("constraints", []),
-        verify_commands=task_data.get("verify_commands", []),
-        repo_url=task_data.get("repo_url", ""),
-        branch=task_data.get("branch", ""),
-        env_policy=task_data.get("env_policy", "auto"),
-        env_name=task_data.get("env_name", ""),
-        allowed_paths=task_data.get("allowed_paths", []),
-        timeout_seconds=overrides.pop("timeout_seconds", task_data.get("timeout_seconds", 900)),
-        output_dir=output_dir,
-        session_id=card["session_id"],
-        parent_run=card.get("parent"),
-        max_steps=overrides.pop("max_steps", task_data.get("max_steps", 24)),
-        max_extra_steps_after_progress=overrides.pop("max_extra_steps_after_progress", 8),
-        patch_repair_attempts=overrides.pop("patch_repair_attempts", 2),
-        api_base=overrides.pop("api_base", task_data.get("api_base", "https://api.openai.com/v1")),
-        api_key_env=overrides.pop("api_key_env", task_data.get("api_key_env", "OPENAI_API_KEY")),
-        model=overrides.pop("model", task_data.get("model", "gpt-4.1")),
-        **overrides,
-    )
+        "session_id": card["session_id"],
+        "parent_run": card.get("parent") or task_data.get("parent_run"),
+    }
+    task_spec = CodeTaskSpec.model_validate(resume_data)
     return _run_code_task_resume(task_spec, output_dir)
 
 
@@ -199,22 +185,13 @@ def resume_code_task(output_dir, instruction, **overrides):
 
 def _run_code_task_resume(spec, output_dir):
     """Run a coding task, appending steps to existing state."""
-    import json
     from .models import AgentState
 
-    old_state = None
     old_state_path = output_dir / "state.json"
-    if old_state_path.exists():
-        try:
-            data = json.loads(old_state_path.read_text())
-            old_state = AgentState.model_validate(data)
-        except Exception:
-            pass
-
-    report = run_step_controller(spec, resume_state=old_state)
-    from .session import write_session_card
-    write_session_card(spec, report, output_dir, kind="task_session")
-    return report
+    old_state = AgentState.model_validate_json(
+        old_state_path.read_text(encoding="utf-8"),
+    )
+    return _run_prepared_task(spec, resume_state=old_state)
 
 
 
@@ -353,6 +330,11 @@ def _prepare_environment(spec: CodeTaskSpec) -> dict | None:
 def run_code_task(spec: CodeTaskSpec) -> PatchReport:
     """Run a coding task through the step controller."""
     _prepare_workspace(spec)
+    return _run_prepared_task(spec)
+
+
+def _run_prepared_task(spec: CodeTaskSpec, resume_state=None) -> PatchReport:
+    """Run a fresh or resumed task through one environment lifecycle."""
     environment_info = None
     try:
         environment_info = _prepare_environment(spec)
@@ -372,7 +354,7 @@ def run_code_task(spec: CodeTaskSpec) -> PatchReport:
             write_session_card(spec, report, spec.output_dir, kind="task_session")
             return report
         raise
-    report = run_step_controller(spec)
+    report = run_step_controller(spec, resume_state=resume_state)
     if environment_info and spec.env_policy in {"auto", "reuse_only"}:
         from .resources import EnvironmentBlockedError, recertify_environment
         try:
