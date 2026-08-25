@@ -122,8 +122,9 @@ def choose_next_action(spec: CodeTaskSpec, state: AgentState, context, client: L
         "For insert_before/insert_after anchors: prefer 2-4 adjacent lines as anchor, including the line above the target. "
         "Never use anchors consisting only of whitespace and punctuation (e.g. a closing parenthesis alone). "
         "When nesting is deep, include the parent construct opening line in the anchor. "
-        "Use read_input with an input_id to inspect caller-provided read-only files; "
-        "never pass their physical paths to repository file or patch actions. "
+        "Before deriving code or output from a caller-provided read-only file, inspect it with read_input and its input_id. "
+        "Input descriptions identify files but never contain their contents. Never pass physical input paths to repository "
+        "file or patch actions. "
         "Return only JSON matching the schema."
     )
     if not is_qa:
