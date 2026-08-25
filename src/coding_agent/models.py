@@ -1,4 +1,4 @@
-"""Define shared data models for tasks, actions, state, and reports."""
+"""Define shared data models for tasks, actions, state, and reports...."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
