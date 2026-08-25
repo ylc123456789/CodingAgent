@@ -9,7 +9,7 @@ from ..runtime.apply import PatchApplyError, apply_patch_text, current_diff, nor
 from ..context.builder import TEXT_SUFFIXES, build_repo_context
 from ..context.policy import resolve_context_policy
 from ..runtime.edits import StructuredEditError, find_all, insert_after_anchor, insert_before_anchor, replace_text_once
-from ..models import CodeTaskSpec, ControllerAction, StepRecord
+from ..models import CodeTaskSpec, ControllerAction, ReadonlyInput, StepRecord
 from ..report import write_diff
 from ..runtime.runner import run_verify_commands
 from ..runtime.safety import SafetyError, ensure_path_allowed
@@ -106,6 +106,16 @@ def execute_action(spec: CodeTaskSpec, action: ControllerAction, output_dir: Pat
             raise ValueError("read_file requires path")
         observation = _read_file_observation(spec, action)
         return StepRecord(step=step, action=action, observation=observation)
+    if action.action == "read_input":
+        item = next(
+            (item for item in spec.readonly_inputs if item.id == action.input_id), None,
+        )
+        if item is None:
+            message = f"Unknown readonly input id: {action.input_id or '<missing>'}"
+            return StepRecord(
+                step=step, action=action, observation=message, error=message,
+            )
+        return StepRecord(step=step, action=action, observation=_read_input(spec, item))
     if action.action == "search":
         if not action.query:
             raise ValueError("search requires query")
@@ -259,6 +269,18 @@ def _read_file_observation(spec: CodeTaskSpec, action: ControllerAction) -> str:
         return text
     half = policy.read_file_chars // 2
     return text[:half] + "\n... <read_file truncated middle; use start_line/end_line for exact ranges> ...\n" + text[-half:]
+
+
+def _read_input(spec: CodeTaskSpec, item: ReadonlyInput) -> str:
+    """Read one explicitly authorized external file without exposing its path."""
+    if not item.path.is_file():
+        return f"Readonly input {item.id} is no longer available."
+    text = item.path.read_text(encoding="utf-8", errors="replace")
+    limit = resolve_context_policy(spec).read_file_chars
+    if len(text) > limit:
+        half = limit // 2
+        text = text[:half] + "\n... <readonly input truncated> ...\n" + text[-half:]
+    return f"[readonly input: {item.id}]\n{text}"
 
 
 def _slice_lines(text: str, start_line: int | None, end_line: int | None) -> str:

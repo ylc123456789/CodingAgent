@@ -8,6 +8,22 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+class ReadonlyInput(BaseModel):
+    """Caller-provided file available to a coding task as read-only context."""
+
+    id: str = Field(min_length=1)
+    path: Path
+    description: str = ""
+
+    @field_validator("path")
+    @classmethod
+    def _existing_file(cls, value: Path) -> Path:
+        resolved = value.expanduser().resolve()
+        if not resolved.is_file():
+            raise ValueError(f"readonly input is not a file: {resolved}")
+        return resolved
+
+
 class CodeTaskSpec(BaseModel):
     """Configuration for one coding agent run."""
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -17,6 +33,7 @@ class CodeTaskSpec(BaseModel):
     constraints: list[str] = Field(default_factory=list)
     verify_commands: list[str] = Field(default_factory=list)
     allowed_paths: list[str] = Field(default_factory=list)
+    readonly_inputs: list[ReadonlyInput] = Field(default_factory=list)
     max_steps: int = 24
     max_extra_steps_after_progress: int = 8
     patch_repair_attempts: int = 2
@@ -53,6 +70,9 @@ class CodeTaskSpec(BaseModel):
             raise ValueError(
                 f"env_policy={self.env_policy!r} requires a non-empty env_name"
             )
+        input_ids = [item.id for item in self.readonly_inputs]
+        if len(input_ids) != len(set(input_ids)):
+            raise ValueError("readonly input ids must be unique")
         return self
 
     @field_validator("workspace_path")
@@ -199,6 +219,7 @@ class ControllerAction(BaseModel):
     action: Literal[
         "list_tree",
         "read_file",
+        "read_input",
         "search",
         "replace_text",
         "insert_before",
@@ -211,6 +232,7 @@ class ControllerAction(BaseModel):
     ]
     reasoning: str = ""
     path: str | None = None
+    input_id: str | None = None
     start_line: int | None = None
     end_line: int | None = None
     query: str | None = None

@@ -10,9 +10,10 @@ from ..llm import LLMClient
 from ..models import AgentState, CodeTaskSpec, ControllerAction, StepRecord
 
 ACTION_SCHEMA = {
-    "action": "list_tree|read_file|search|replace_text|insert_before|insert_after|apply_patch|write_file|run_command|finish|ask_user",
+    "action": "list_tree|read_file|read_input|search|replace_text|insert_before|insert_after|apply_patch|write_file|run_command|finish|ask_user",
     "reasoning": "brief reason for this next action",
     "path": "relative file path for read_file or structured edits, optional",
+    "input_id": "id from readonly_inputs for read_input, optional",
     "start_line": "optional 1-based start line for read_file",
     "end_line": "optional 1-based inclusive end line for read_file",
     "query": "search query for search, optional",
@@ -121,6 +122,8 @@ def choose_next_action(spec: CodeTaskSpec, state: AgentState, context, client: L
         "For insert_before/insert_after anchors: prefer 2-4 adjacent lines as anchor, including the line above the target. "
         "Never use anchors consisting only of whitespace and punctuation (e.g. a closing parenthesis alone). "
         "When nesting is deep, include the parent construct opening line in the anchor. "
+        "Use read_input with an input_id to inspect caller-provided read-only files; "
+        "never pass their physical paths to repository file or patch actions. "
         "Return only JSON matching the schema."
     )
     if not is_qa:
@@ -132,6 +135,10 @@ def choose_next_action(spec: CodeTaskSpec, state: AgentState, context, client: L
         "env_guidance": _env_policy_guidance(spec),
         "dataset_cache": render_dataset_block(spec, spec.workspace_path, state.dataset_links),
         "allowed_paths": spec.allowed_paths,
+        "readonly_inputs": [
+            {"id": item.id, "description": item.description}
+            for item in spec.readonly_inputs
+        ],
         "context_budget": {
             "context_window_tokens": policy.context_window_tokens,
             "input_budget_tokens": policy.input_budget_tokens,

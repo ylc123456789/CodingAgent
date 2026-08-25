@@ -8,6 +8,7 @@ from .models import (
     CodeTaskSpec,
     CommandResult,
     PatchReport,
+    ReadonlyInput,
     RepoContext,
     Snippet,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "CodeTaskSpec",
     "CommandResult",
     "PatchReport",
+    "ReadonlyInput",
     "RepoContext",
     "Snippet",
     "list_sessions",
